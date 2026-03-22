@@ -292,6 +292,11 @@ wheels = [
     { url = "https://mirrors.aliyun.com/pypi/packages/2a/39/e50c7c3a983047577ee07d2a9e53faf5a69493943ec3f6a384bdc792deb2/httpx-0.28.1-py3-none-any.whl", hash = "sha256:d909fcccc110f8c7faf814ca82a9a4d816bc5a6dbfea25d6591d6985b8ba59ad" },
 ]
 
+[package.optional-dependencies]
+socks = [
+    { name = "socksio" },
+]
+
 [[package]]
 name = "httpx-sse"
 version = "0.4.3"
@@ -829,6 +834,15 @@ wheels = [
 ]
 
 [[package]]
+name = "socksio"
+version = "1.0.0"
+source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
+sdist = { url = "https://mirrors.aliyun.com/pypi/packages/f8/5c/48a7d9495be3d1c651198fd99dbb6ce190e2274d0f28b9051307bdec6b85/socksio-1.0.0.tar.gz", hash = "sha256:f88beb3da5b5c38b9890469de67d0cb0f9d494b78b106ca1845f96c10b91c4ac" }
+wheels = [
+    { url = "https://mirrors.aliyun.com/pypi/packages/37/c3/6eeb6034408dac0fa653d126c9204ade96b819c936e136c5e8a6897eee9c/socksio-1.0.0-py3-none-any.whl", hash = "sha256:95dc1f15f9b34e8d7b16f06d74b8ccf48f609af32ab33c608d08761c5dcbb1f3" },
+]
+
+[[package]]
 name = "sse-starlette"
 version = "3.3.3"
 source = { registry = "https://mirrors.aliyun.com/pypi/simple" }
@@ -959,6 +973,9 @@ dependencies = [
 silk = [
     { name = "graiax-silkcoder" },
 ]
+socks = [
+    { name = "httpx", extra = ["socks"] },
+]
 
 [package.dev-dependencies]
 dev = [
@@ -973,11 +990,12 @@ requires-dist = [
     { name = "cryptography", specifier = ">=42.0" },
     { name = "graiax-silkcoder", marker = "extra == 'silk'", specifier = ">=0.3" },
     { name = "httpx", specifier = ">=0.27" },
+    { name = "httpx", extras = ["socks"], marker = "extra == 'socks'" },
     { name = "mcp", specifier = ">=1.9" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "qrcode", specifier = ">=7.4" },
 ]
-provides-extras = ["silk"]
+provides-extras = ["silk", "socks"]
 
 [package.metadata.requires-dev]
 dev = [

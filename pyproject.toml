@@ -21,6 +21,7 @@ wechat-clawbot-cc = "wechat_clawbot.claude_channel.cli:main"
 
 [project.optional-dependencies]
 silk = ["graiax-silkcoder>=0.3"]
+socks = ["httpx[socks]"]
 
 [build-system]
 requires = ["uv_build>=0.9.22,<0.10.0"]

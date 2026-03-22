@@ -37,10 +37,11 @@ uv add wechat-clawbot
 pip install wechat-clawbot
 ```
 
-如需 SILK 语音转码（可选）：
+可选扩展：
 
 ```bash
-uv add "wechat-clawbot[silk]"
+uv add "wechat-clawbot[silk]"    # SILK 语音转码
+uv add "wechat-clawbot[socks]"   # SOCKS 代理支持（如使用 SOCKS5 代理）
 ```
 
 ## 快速开始 — Claude Code Channel
@@ -53,10 +54,16 @@ wechat-clawbot-cc setup
 
 用微信扫描终端中的二维码。凭据保存到 `~/.claude/channels/wechat/account.json`。
 
-### 2. 启动 Claude Code + 微信通道
+### 2. 注册 MCP 服务器
 
 ```bash
-claude --channels "wechat-clawbot-cc serve"
+claude mcp add wechat -- wechat-clawbot-cc serve
+```
+
+### 3. 启动 Claude Code + 微信通道
+
+```bash
+claude --channels server:wechat
 ```
 
 在微信 ClawBot 中发送消息，Claude 会自动回复。

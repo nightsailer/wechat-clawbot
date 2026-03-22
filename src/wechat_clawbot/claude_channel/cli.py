@@ -8,8 +8,9 @@ Usage:
 
 from __future__ import annotations
 
-import asyncio
 import sys
+
+import anyio
 
 
 def _print_help() -> None:
@@ -24,7 +25,8 @@ Commands:
 
 Quick start:
   1. wechat-clawbot-cc setup
-  2. claude --channels "wechat-clawbot-cc serve"
+  2. claude mcp add wechat -- wechat-clawbot-cc serve
+  3. claude --channels server:wechat
 """.strip()
     )
 
@@ -41,7 +43,7 @@ def main() -> None:
     if command == "setup":
         from .setup import interactive_setup
 
-        asyncio.run(interactive_setup())
+        anyio.run(interactive_setup)
         return
 
     if command == "serve":
@@ -56,7 +58,7 @@ def main() -> None:
             )
             sys.exit(1)
         print(f"[wechat-channel] 使用已保存账号: {account.account_id}", file=sys.stderr)
-        asyncio.run(run_channel_server(account))
+        anyio.run(run_channel_server, account)
         return
 
     print(f"未知命令: {command}", file=sys.stderr)

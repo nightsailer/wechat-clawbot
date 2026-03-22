@@ -9,13 +9,15 @@ Flow:
 
 from __future__ import annotations
 
-import asyncio
 import collections
 import contextlib
+import functools
 import os
 import sys
 import tempfile
 from typing import TYPE_CHECKING, Any
+
+import anyio
 
 from mcp import types as mcp_types
 from mcp.server import Server
@@ -172,8 +174,8 @@ async def _poll_loop(
     account: AccountData,
     write_stream: ObjectSendStream[SessionMessage],
     context_tokens: _LRUDict,
-    ready_event: asyncio.Event,
-    stop_event: asyncio.Event,
+    ready_event: anyio.Event,
+    stop_event: anyio.Event,
 ) -> None:
     """Long-poll getUpdates and push messages to Claude Code as channel notifications.
 
@@ -197,6 +199,15 @@ async def _poll_loop(
 
     consecutive_failures = 0
 
+    async def _backoff_sleep() -> None:
+        """Sleep with exponential back-off; resets counter after reaching the threshold."""
+        nonlocal consecutive_failures
+        if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+            consecutive_failures = 0
+            await anyio.sleep(BACKOFF_DELAY_MS / 1000)
+        else:
+            await anyio.sleep(RETRY_DELAY_MS / 1000)
+
     while not stop_event.is_set():
         try:
             resp = await get_updates(
@@ -216,11 +227,7 @@ async def _poll_loop(
                     f"errmsg={resp.errmsg or ''} "
                     f"({consecutive_failures}/{MAX_CONSECUTIVE_FAILURES})"
                 )
-                if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-                    consecutive_failures = 0
-                    await asyncio.sleep(BACKOFF_DELAY_MS / 1000)
-                else:
-                    await asyncio.sleep(RETRY_DELAY_MS / 1000)
+                await _backoff_sleep()
                 continue
 
             consecutive_failures = 0
@@ -231,7 +238,7 @@ async def _poll_loop(
             if new_buf and new_buf != get_updates_buf:
                 get_updates_buf = new_buf
                 with contextlib.suppress(OSError):
-                    await asyncio.to_thread(_atomic_write_text, sync_buf_file, get_updates_buf)
+                    await anyio.to_thread.run_sync(functools.partial(_atomic_write_text, sync_buf_file, get_updates_buf))
 
             for msg in resp.msgs or []:
                 if msg.message_type != MessageType.USER:
@@ -252,6 +259,7 @@ async def _poll_loop(
                 # requires an active request context that we don't have here.
                 try:
                     notification = JSONRPCNotification(
+                        jsonrpc="2.0",
                         method="notifications/claude/channel",
                         params={
                             "content": text,
@@ -270,11 +278,7 @@ async def _poll_loop(
                 break
             consecutive_failures += 1
             _log_error(f"轮询异常: {e}")
-            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
-                consecutive_failures = 0
-                await asyncio.sleep(BACKOFF_DELAY_MS / 1000)
-            else:
-                await asyncio.sleep(RETRY_DELAY_MS / 1000)
+            await _backoff_sleep()
 
     _log("监听已停止")
 
@@ -312,24 +316,33 @@ async def run_channel_server(account: AccountData) -> None:
         except Exception as e:
             return [mcp_types.TextContent(type="text", text=f"send failed: {e}")]
 
-    stop_event = asyncio.Event()
-    ready_event = asyncio.Event()
+    stop_event = anyio.Event()
+    ready_event = anyio.Event()
 
     async with stdio_server() as (read_stream, write_stream):
         _log("MCP 连接就绪")
 
-        poll_task = asyncio.create_task(
-            _poll_loop(account, write_stream, context_tokens, ready_event, stop_event)
-        )
+        async with anyio.create_task_group() as tg:
 
-        async def _run_with_ready_signal() -> None:
-            ready_event.set()
-            await server.run(read_stream, write_stream, server.create_initialization_options())
+            async def _run_poll() -> None:
+                try:
+                    await _poll_loop(
+                        account, write_stream, context_tokens, ready_event, stop_event
+                    )
+                except Exception as e:
+                    _log_error(f"poll_loop 异常退出: {e}")
 
-        try:
-            await _run_with_ready_signal()
-        finally:
-            stop_event.set()
-            poll_task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await poll_task
+            tg.start_soon(_run_poll)
+
+            try:
+                ready_event.set()
+                await server.run(
+                    read_stream,
+                    write_stream,
+                    server.create_initialization_options(
+                        experimental_capabilities={"claude/channel": {}},
+                    ),
+                )
+            finally:
+                stop_event.set()
+                tg.cancel_scope.cancel()

@@ -37,10 +37,11 @@ Or with pip:
 pip install wechat-clawbot
 ```
 
-For SILK voice transcoding (optional):
+Optional extras:
 
 ```bash
-uv add "wechat-clawbot[silk]"
+uv add "wechat-clawbot[silk]"    # SILK voice transcoding
+uv add "wechat-clawbot[socks]"   # SOCKS proxy support (e.g. behind a SOCKS5 proxy)
 ```
 
 ## Quick Start — Claude Code Channel
@@ -53,10 +54,16 @@ wechat-clawbot-cc setup
 
 Scan the terminal QR code with WeChat. Credentials are saved to `~/.claude/channels/wechat/account.json`.
 
-### 2. Start Claude Code with the WeChat channel
+### 2. Register the MCP server
 
 ```bash
-claude --channels "wechat-clawbot-cc serve"
+claude mcp add wechat -- wechat-clawbot-cc serve
+```
+
+### 3. Start Claude Code with the WeChat channel
+
+```bash
+claude --channels server:wechat
 ```
 
 Send a message in WeChat ClawBot, and Claude will reply.
