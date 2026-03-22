@@ -25,17 +25,27 @@ from mcp.shared.message import SessionMessage
 from mcp.types import JSONRPCMessage, JSONRPCNotification
 
 from wechat_clawbot._version import __version__
-from wechat_clawbot.api.client import WeixinApiOptions, get_updates, send_message
+from wechat_clawbot.api.client import (
+    WeixinApiOptions,
+    get_config,
+    get_updates,
+    send_message,
+    send_typing,
+)
 from wechat_clawbot.api.types import (
     MessageItem,
     MessageItemType,
     MessageState,
     MessageType,
     SendMessageReq,
+    SendTypingReq,
     TextItem,
+    TypingStatus,
     WeixinMessage,
 )
+from wechat_clawbot.auth.accounts import CDN_BASE_URL
 from wechat_clawbot.messaging.inbound import body_from_item_list
+from wechat_clawbot.messaging.send_media import send_weixin_media_file
 from wechat_clawbot.util.random import generate_id
 
 if TYPE_CHECKING:
@@ -51,6 +61,7 @@ MAX_CONSECUTIVE_FAILURES = 3
 BACKOFF_DELAY_MS = 30_000
 RETRY_DELAY_MS = 2_000
 MAX_CONTEXT_TOKENS = 500
+TYPING_KEEPALIVE_INTERVAL = 5  # seconds
 
 
 # Logging goes to stderr because stdout is reserved for MCP stdio transport.
@@ -94,8 +105,82 @@ class _LRUDict(collections.OrderedDict[str, str]):
             self.popitem(last=False)
 
 
+class _TypingManager:
+    """Manages "typing..." indicators with keepalive for active conversations."""
+
+    def __init__(self, opts: WeixinApiOptions) -> None:
+        self._opts = opts
+        self._typing_tickets: _LRUDict = _LRUDict()
+        self._active_scopes: dict[str, anyio.CancelScope] = {}
+        self._tg: anyio.abc.TaskGroup | None = None
+
+    def set_task_group(self, tg: anyio.abc.TaskGroup) -> None:
+        self._tg = tg
+
+    async def _ensure_typing_ticket(self, sender_id: str, context_token: str | None) -> str | None:
+        cached = self._typing_tickets.get(sender_id)
+        if cached:
+            return cached
+        try:
+            resp = await get_config(
+                self._opts, ilink_user_id=sender_id, context_token=context_token
+            )
+            if resp.ret == 0 and resp.typing_ticket:
+                self._typing_tickets[sender_id] = resp.typing_ticket
+                return resp.typing_ticket
+        except Exception as e:
+            _log_error(f"getConfig 获取 typing_ticket 失败: {e}")
+        return None
+
+    async def start(self, sender_id: str, context_token: str | None) -> None:
+        """Start typing indicator with periodic keepalive."""
+        await self.stop(sender_id)
+        ticket = await self._ensure_typing_ticket(sender_id, context_token)
+        if not ticket or not self._tg:
+            return
+        scope = anyio.CancelScope()
+        self._active_scopes[sender_id] = scope
+
+        async def _keepalive() -> None:
+            with scope:
+                while True:
+                    try:
+                        await send_typing(
+                            self._opts,
+                            SendTypingReq(
+                                ilink_user_id=sender_id,
+                                typing_ticket=ticket,
+                                status=TypingStatus.TYPING,
+                            ),
+                        )
+                    except Exception as e:
+                        _log_error(f"typing keepalive 失败: {e}")
+                        return
+                    await anyio.sleep(TYPING_KEEPALIVE_INTERVAL)
+
+        self._tg.start_soon(_keepalive)
+
+    async def stop(self, sender_id: str) -> None:
+        """Cancel typing indicator for *sender_id*."""
+        scope = self._active_scopes.pop(sender_id, None)
+        if not scope:
+            return
+        scope.cancel()
+        ticket = self._typing_tickets.get(sender_id)
+        if ticket:
+            with contextlib.suppress(Exception):
+                await send_typing(
+                    self._opts,
+                    SendTypingReq(
+                        ilink_user_id=sender_id,
+                        typing_ticket=ticket,
+                        status=TypingStatus.CANCEL,
+                    ),
+                )
+
+
 async def _send_text_reply(
-    account: AccountData,
+    opts: WeixinApiOptions,
     to: str,
     text: str,
     context_token: str,
@@ -113,10 +198,7 @@ async def _send_text_reply(
             context_token=context_token,
         )
     )
-    await send_message(
-        WeixinApiOptions(base_url=account.base_url, token=account.token),
-        req,
-    )
+    await send_message(opts, req)
     return client_id
 
 
@@ -124,6 +206,9 @@ INSTRUCTIONS = "\n".join(
     [
         'Messages from WeChat users arrive as <channel source="wechat" sender="..." sender_id="...">',
         "Reply using the wechat_reply tool. You MUST pass the sender_id from the inbound tag.",
+        "To send a file (image, video, or document), use the wechat_send_file tool.",
+        "IMPORTANT: When you start processing a WeChat message, call wechat_typing FIRST "
+        "so the user sees a typing indicator. It auto-cancels when you send a reply.",
         "Messages are from real WeChat users via the WeChat ClawBot interface.",
         "Respond naturally in Chinese unless the user writes in another language.",
         "Keep replies concise — WeChat is a chat app, not an essay platform.",
@@ -163,7 +248,57 @@ def create_mcp_server() -> Server:
                     },
                     "required": ["sender_id", "text"],
                 },
-            )
+            ),
+            mcp_types.Tool(
+                name="wechat_send_file",
+                description=(
+                    "Send a file (image, video, or document) to the WeChat user. "
+                    "The file type is auto-detected from the file extension."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "sender_id": {
+                            "type": "string",
+                            "description": (
+                                "The sender_id from the inbound <channel> tag "
+                                "(xxx@im.wechat format)"
+                            ),
+                        },
+                        "file_path": {
+                            "type": "string",
+                            "description": "Absolute path to the local file to send",
+                        },
+                        "text": {
+                            "type": "string",
+                            "description": "Optional caption text to accompany the file",
+                            "default": "",
+                        },
+                    },
+                    "required": ["sender_id", "file_path"],
+                },
+            ),
+            mcp_types.Tool(
+                name="wechat_typing",
+                description=(
+                    "Show a typing indicator to the WeChat user. "
+                    "Call this when you START processing a WeChat message. "
+                    "Automatically cancelled when you call wechat_reply or wechat_send_file."
+                ),
+                inputSchema={
+                    "type": "object",
+                    "properties": {
+                        "sender_id": {
+                            "type": "string",
+                            "description": (
+                                "The sender_id from the inbound <channel> tag "
+                                "(xxx@im.wechat format)"
+                            ),
+                        },
+                    },
+                    "required": ["sender_id"],
+                },
+            ),
         ]
 
     return server
@@ -173,6 +308,7 @@ async def _poll_loop(
     account: AccountData,
     write_stream: ObjectSendStream[SessionMessage],
     context_tokens: _LRUDict,
+    typing_mgr: _TypingManager,
     ready_event: anyio.Event,
     stop_event: anyio.Event,
 ) -> None:
@@ -289,16 +425,13 @@ async def run_channel_server(account: AccountData) -> None:
     server = create_mcp_server()
     # LRU-bounded to prevent unbounded memory growth from many distinct senders
     context_tokens: _LRUDict = _LRUDict()
+    api_opts = WeixinApiOptions(base_url=account.base_url, token=account.token)
+    typing_mgr = _TypingManager(api_opts)
 
-    @server.call_tool()
-    async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[mcp_types.TextContent]:
-        if name != "wechat_reply":
-            raise ValueError(f"unknown tool: {name}")
-
-        args = arguments or {}
-        sender_id = args.get("sender_id", "")
-        text = args.get("text", "")
-
+    def _require_context_token(
+        sender_id: str,
+    ) -> str | list[mcp_types.TextContent]:
+        """Look up context_token for *sender_id*. Returns token or error response."""
         ctx_token = context_tokens.get(sender_id)
         if not ctx_token:
             return [
@@ -310,12 +443,52 @@ async def run_channel_server(account: AccountData) -> None:
                     ),
                 )
             ]
+        return ctx_token
 
-        try:
-            await _send_text_reply(account, sender_id, text, ctx_token)
-            return [mcp_types.TextContent(type="text", text="sent")]
-        except Exception as e:
-            return [mcp_types.TextContent(type="text", text=f"send failed: {e}")]
+    @server.call_tool()
+    async def call_tool(name: str, arguments: dict[str, Any] | None) -> list[mcp_types.TextContent]:
+        args = arguments or {}
+        sender_id = args.get("sender_id", "")
+
+        if name == "wechat_reply":
+            text = args.get("text", "")
+            result = _require_context_token(sender_id)
+            if isinstance(result, list):
+                return result
+            await typing_mgr.stop(sender_id)
+            try:
+                await _send_text_reply(api_opts, sender_id, text, result)
+                return [mcp_types.TextContent(type="text", text="sent")]
+            except Exception as e:
+                return [mcp_types.TextContent(type="text", text=f"send failed: {e}")]
+
+        if name == "wechat_send_file":
+            file_path = args.get("file_path", "")
+            text = args.get("text", "")
+            if not file_path:
+                return [mcp_types.TextContent(type="text", text="error: file_path is required")]
+            result = _require_context_token(sender_id)
+            if isinstance(result, list):
+                return result
+            await typing_mgr.stop(sender_id)
+            try:
+                send_opts = WeixinApiOptions(
+                    base_url=api_opts.base_url, token=api_opts.token, context_token=result
+                )
+                await send_weixin_media_file(file_path, sender_id, text, send_opts, CDN_BASE_URL)
+                return [mcp_types.TextContent(type="text", text="sent")]
+            except Exception as e:
+                return [mcp_types.TextContent(type="text", text=f"send failed: {e}")]
+
+        if name == "wechat_typing":
+            ctx_token = context_tokens.get(sender_id)
+            try:
+                await typing_mgr.start(sender_id, ctx_token)
+                return [mcp_types.TextContent(type="text", text="typing")]
+            except Exception as e:
+                return [mcp_types.TextContent(type="text", text=f"typing failed: {e}")]
+
+        raise ValueError(f"unknown tool: {name}")
 
     stop_event = anyio.Event()
     ready_event = anyio.Event()
@@ -324,10 +497,18 @@ async def run_channel_server(account: AccountData) -> None:
         _log("MCP 连接就绪")
 
         async with anyio.create_task_group() as tg:
+            typing_mgr.set_task_group(tg)
 
             async def _run_poll() -> None:
                 try:
-                    await _poll_loop(account, write_stream, context_tokens, ready_event, stop_event)
+                    await _poll_loop(
+                        account,
+                        write_stream,
+                        context_tokens,
+                        typing_mgr,
+                        ready_event,
+                        stop_event,
+                    )
                 except Exception as e:
                     _log_error(f"poll_loop 异常退出: {e}")
 
