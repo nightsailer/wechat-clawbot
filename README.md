@@ -132,9 +132,10 @@ uv run ruff check src/ tests/
 uv run ruff format src/ tests/
 ```
 
-## API Documentation
+## Documentation
 
-See [docs/api.md](docs/api.md) for the full public API reference.
+- [iLink Bot Protocol](docs/ilink-protocol.md) — WeChat ClawBot iLink API protocol reference
+- [Python SDK API](docs/api.md) — Public API reference for wechat-clawbot
 
 ## License
 

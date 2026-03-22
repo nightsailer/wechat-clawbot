@@ -132,9 +132,10 @@ uv run ruff check src/ tests/
 uv run ruff format src/ tests/
 ```
 
-## API 文档
+## 文档
 
-完整公共 API 参考见 [docs/api.md](docs/api.md)。
+- [iLink Bot 协议](docs/ilink-protocol.md) — 微信 ClawBot iLink API 协议参考
+- [Python SDK API](docs/api.md) — wechat-clawbot 公共 API 参考
 
 ## 协议
 
