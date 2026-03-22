@@ -962,6 +962,7 @@ name = "wechat-clawbot"
 version = "0.1.0"
 source = { editable = "." }
 dependencies = [
+    { name = "anyio" },
     { name = "cryptography" },
     { name = "httpx" },
     { name = "mcp" },
@@ -987,6 +988,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "anyio", specifier = ">=4.0" },
     { name = "cryptography", specifier = ">=42.0" },
     { name = "graiax-silkcoder", marker = "extra == 'silk'", specifier = ">=0.3" },
     { name = "httpx", specifier = ">=0.27" },
