@@ -18,7 +18,6 @@ import tempfile
 from typing import TYPE_CHECKING, Any
 
 import anyio
-
 from mcp import types as mcp_types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
@@ -238,7 +237,9 @@ async def _poll_loop(
             if new_buf and new_buf != get_updates_buf:
                 get_updates_buf = new_buf
                 with contextlib.suppress(OSError):
-                    await anyio.to_thread.run_sync(functools.partial(_atomic_write_text, sync_buf_file, get_updates_buf))
+                    await anyio.to_thread.run_sync(
+                        functools.partial(_atomic_write_text, sync_buf_file, get_updates_buf)
+                    )
 
             for msg in resp.msgs or []:
                 if msg.message_type != MessageType.USER:
@@ -326,9 +327,7 @@ async def run_channel_server(account: AccountData) -> None:
 
             async def _run_poll() -> None:
                 try:
-                    await _poll_loop(
-                        account, write_stream, context_tokens, ready_event, stop_event
-                    )
+                    await _poll_loop(account, write_stream, context_tokens, ready_event, stop_event)
                 except Exception as e:
                     _log_error(f"poll_loop 异常退出: {e}")
 
