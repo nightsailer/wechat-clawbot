@@ -7,7 +7,7 @@
 ```
 微信 (iOS) --> ClawBot --> ilink API --> [wechat-clawbot] --> Claude Code 会话
                                                 |
-Claude Code  <-- MCP Channel 协议  <--  wechat_reply 工具
+Claude Code  <-- MCP Channel 协议  <--  wechat_reply / wechat_send_file / wechat_typing
 ```
 
 ## 功能特性
@@ -18,7 +18,7 @@ Claude Code  <-- MCP Channel 协议  <--  wechat_reply 工具
 - **SILK 转码** — 语音消息转 WAV（可选依赖）
 - **消息处理** — 入站消息转换、斜杠命令、调试模式、错误通知
 - **Claude Code Channel** — MCP 服务器，将微信消息桥接到 Claude Code 会话
-- **异步优先** — 基于 httpx + asyncio，使用共享连接池
+- **异步优先** — 基于 httpx + anyio，使用共享连接池
 
 ## 环境要求
 
@@ -118,7 +118,7 @@ src/wechat_clawbot/
 ## 开发
 
 ```bash
-git clone https://github.com/anthropics/wechat-clawbot.git
+git clone https://github.com/nightsailer/wechat-clawbot.git
 cd wechat-clawbot
 uv sync
 

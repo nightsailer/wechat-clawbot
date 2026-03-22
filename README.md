@@ -7,7 +7,7 @@ Ported from [@tencent-weixin/openclaw-weixin](https://www.npmjs.com/package/@ten
 ```
 WeChat (iOS) --> ClawBot --> ilink API --> [wechat-clawbot] --> Claude Code Session
                                                   |
-Claude Code  <-- MCP Channel Protocol  <--  wechat_reply tool
+Claude Code  <-- MCP Channel Protocol  <--  wechat_reply / wechat_send_file / wechat_typing
 ```
 
 ## Features
@@ -18,7 +18,7 @@ Claude Code  <-- MCP Channel Protocol  <--  wechat_reply tool
 - **SILK transcoding** — voice message to WAV conversion (optional)
 - **Message processing** — inbound conversion, slash commands, debug mode, error notices
 - **Claude Code Channel** — MCP server bridging WeChat messages into Claude Code sessions
-- **Async-first** — built on httpx + asyncio with shared connection pools
+- **Async-first** — built on httpx + anyio with shared connection pools
 
 ## Requirements
 
@@ -118,7 +118,7 @@ src/wechat_clawbot/
 ## Development
 
 ```bash
-git clone https://github.com/anthropics/wechat-clawbot.git
+git clone https://github.com/nightsailer/wechat-clawbot.git
 cd wechat-clawbot
 uv sync
 
