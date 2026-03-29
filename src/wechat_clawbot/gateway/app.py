@@ -78,6 +78,8 @@ class GatewayApp:
         # Run poller + HTTP server concurrently
         self._stop_event = anyio.Event()
 
+        assert self._poller is not None
+        assert self._stop_event is not None
         async with anyio.create_task_group() as tg:
             tg.start_soon(self._poller.run, self._stop_event)
             tg.start_soon(self._run_http_server)
@@ -101,6 +103,7 @@ class GatewayApp:
         """Run the HTTP server for MCP SSE endpoints."""
         import uvicorn
 
+        assert self._mcp_channel is not None
         app = self._mcp_channel.get_asgi_app()
         config = uvicorn.Config(
             app,
@@ -127,6 +130,7 @@ class GatewayApp:
             status=DeliveryStatus.PENDING,
             created_at=msg.timestamp or time.time(),
         )
+        assert self._delivery is not None
         await self._delivery.enqueue(record)
 
         # Try to deliver
@@ -138,6 +142,7 @@ class GatewayApp:
                 context_token=msg.context_token,
             )
             if success:
+                assert self._delivery is not None
                 await self._delivery.mark_delivered(record.message_id)
             else:
                 logger.warning("Failed to deliver to %s, will retry", endpoint_id)
