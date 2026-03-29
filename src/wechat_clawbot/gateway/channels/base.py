@@ -35,6 +35,21 @@ class SubChannel(Protocol):
         """
         ...
 
+    async def send_reply(
+        self,
+        endpoint_id: str,
+        sender_id: str,
+        text: str,
+        context_token: str | None = None,
+    ) -> None:
+        """Send a reply from the gateway back through this sub-channel.
+
+        This is the reverse path — used when the gateway needs to push
+        a message originated from another endpoint to the client connected
+        via this sub-channel.
+        """
+        ...
+
     def is_endpoint_connected(self, endpoint_id: str) -> bool:
         """Check if a specific endpoint is currently connected."""
         ...

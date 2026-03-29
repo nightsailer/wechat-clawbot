@@ -6,6 +6,8 @@ import argparse
 import asyncio
 import json
 import logging
+import os
+import signal
 import sys
 from pathlib import Path
 
@@ -14,6 +16,25 @@ from .config import (
     resolve_gateway_state_dir,
     scaffold_gateway_config,
 )
+
+_PID_FILE_NAME = "gateway.pid"
+
+
+def _output(args: argparse.Namespace, data: dict | list | str) -> None:
+    """Output data, respecting --json flag."""
+    if getattr(args, "json_output", False):
+        if isinstance(data, str):
+            data = {"message": data}
+        print(json.dumps(data, ensure_ascii=False, indent=2))
+    else:
+        if isinstance(data, str):
+            print(data)
+        elif isinstance(data, dict):
+            for k, v in data.items():
+                print(f"  {k}: {v}")
+        elif isinstance(data, list):
+            for item in data:
+                print(f"  - {item}")
 
 
 def main() -> None:
@@ -70,13 +91,20 @@ def _cmd_init(args: argparse.Namespace) -> None:
     state_dir.mkdir(parents=True, exist_ok=True)
 
     config_path = scaffold_gateway_config(state_dir)
-    print(f"Gateway initialized at {state_dir}")
-    print(f"Configuration: {config_path}")
-    print()
-    print("Next steps:")
-    print("  1. Edit gateway.yaml to configure accounts and endpoints")
-    print("  2. Run: clawbot-gateway account add")
-    print("  3. Run: clawbot-gateway start")
+    _output(
+        args,
+        {
+            "state_dir": str(state_dir),
+            "config_path": str(config_path),
+            "status": "initialized",
+        },
+    )
+    if not args.json_output:
+        print()
+        print("Next steps:")
+        print("  1. Edit gateway.yaml to configure accounts and endpoints")
+        print("  2. Run: clawbot-gateway account add")
+        print("  3. Run: clawbot-gateway start")
 
 
 def _cmd_start(args: argparse.Namespace) -> None:
@@ -92,6 +120,11 @@ def _cmd_start(args: argparse.Namespace) -> None:
         print(f"Error loading config: {e}", file=sys.stderr)
         sys.exit(1)
 
+    # Write PID file
+    state_dir = resolve_gateway_state_dir()
+    pid_file = state_dir / _PID_FILE_NAME
+    pid_file.write_text(str(os.getpid()))
+
     from .app import GatewayApp
 
     app = GatewayApp(config)
@@ -100,12 +133,28 @@ def _cmd_start(args: argparse.Namespace) -> None:
     except KeyboardInterrupt:
         print("\nGateway shutting down...")
         asyncio.run(app.stop())
+    finally:
+        pid_file.unlink(missing_ok=True)
 
 
 def _cmd_stop(args: argparse.Namespace) -> None:
-    """Stop the running gateway."""
-    # Phase 1: simple message, will use Admin API in Phase 5
-    print("Stop not yet implemented — use Ctrl+C to stop the running gateway")
+    """Stop the running gateway via PID file."""
+    state_dir = resolve_gateway_state_dir()
+    pid_file = state_dir / _PID_FILE_NAME
+
+    if not pid_file.exists():
+        _output(args, "No running gateway found (PID file missing)")
+        return
+
+    try:
+        pid = int(pid_file.read_text().strip())
+        os.kill(pid, signal.SIGINT)
+        _output(args, {"status": "stop signal sent", "pid": pid})
+    except ProcessLookupError:
+        pid_file.unlink(missing_ok=True)
+        _output(args, "Gateway process not found (stale PID file removed)")
+    except ValueError:
+        _output(args, "Invalid PID file")
 
 
 def _cmd_status(args: argparse.Namespace) -> None:
@@ -114,17 +163,34 @@ def _cmd_status(args: argparse.Namespace) -> None:
     config_path = state_dir / "gateway.yaml"
 
     if not config_path.exists():
-        print("Gateway not initialized. Run: clawbot-gateway init")
+        _output(args, "Gateway not initialized. Run: clawbot-gateway init")
         return
+
+    # Check if running
+    pid_file = state_dir / _PID_FILE_NAME
+    running = False
+    pid = None
+    if pid_file.exists():
+        try:
+            pid = int(pid_file.read_text().strip())
+            os.kill(pid, 0)  # Check if process exists
+            running = True
+        except (ProcessLookupError, ValueError):
+            running = False
 
     try:
         config = load_gateway_config()
-        print("Gateway Configuration:")
-        print(f"  Host: {config.gateway.host}:{config.gateway.port}")
-        print(f"  Accounts: {len(config.accounts)}")
-        print(f"  Endpoints: {len(config.endpoints)}")
-        for eid, ecfg in config.endpoints.items():
-            print(f"    - {eid}: {ecfg.name} ({ecfg.type})")
+        endpoints = {
+            eid: {"name": ecfg.name, "type": ecfg.type} for eid, ecfg in config.endpoints.items()
+        }
+        status_data = {
+            "running": running,
+            "pid": pid if running else None,
+            "host": f"{config.gateway.host}:{config.gateway.port}",
+            "accounts": len(config.accounts),
+            "endpoints": endpoints,
+        }
+        _output(args, status_data)
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
 
@@ -135,17 +201,17 @@ def _cmd_account_add(args: argparse.Namespace) -> None:
     accounts_dir = state_dir / "accounts"
     accounts_dir.mkdir(parents=True, exist_ok=True)
 
-    print("Starting QR login...")
-    asyncio.run(_do_account_add(accounts_dir))
+    if not args.json_output:
+        print("Starting QR login...")
+    asyncio.run(_do_account_add(accounts_dir, args))
 
 
-async def _do_account_add(accounts_dir: Path) -> None:
+async def _do_account_add(accounts_dir: Path, args: argparse.Namespace) -> None:
     """Async QR login flow."""
     from wechat_clawbot.claude_channel.setup import do_qr_login
 
     result = await do_qr_login()
     if result:
-        # Save credentials to gateway accounts directory
         cred_file = accounts_dir / f"{result.account_id}.json"
         cred_data = {
             "token": result.token,
@@ -155,7 +221,13 @@ async def _do_account_add(accounts_dir: Path) -> None:
         }
         cred_file.write_text(json.dumps(cred_data, indent=2))
         cred_file.chmod(0o600)
-        print(f"\nAccount saved: {cred_file}")
-        print(f"Account ID: {result.account_id}")
+        _output(
+            args,
+            {
+                "status": "saved",
+                "account_id": result.account_id,
+                "credentials_path": str(cred_file),
+            },
+        )
     else:
         print("Login failed or cancelled.", file=sys.stderr)
