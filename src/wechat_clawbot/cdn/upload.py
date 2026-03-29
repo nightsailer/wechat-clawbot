@@ -83,7 +83,9 @@ async def _upload_buffer_to_cdn(
     elif upload_param:
         cdn_url = build_cdn_upload_url(cdn_base_url, upload_param, filekey)
     else:
-        raise RuntimeError(f"{label}: CDN upload URL missing (need upload_full_url or upload_param)")
+        raise RuntimeError(
+            f"{label}: CDN upload URL missing (need upload_full_url or upload_param)"
+        )
     logger.debug(f"{label}: CDN POST url={redact_url(cdn_url)} ciphertextSize={len(ciphertext)}")
 
     download_param: str | None = None

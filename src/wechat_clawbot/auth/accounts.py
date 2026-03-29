@@ -247,8 +247,7 @@ def clear_stale_accounts_for_user_id(
         data = load_weixin_account(aid)
         if data and data.user_id and data.user_id.strip() == user_id:
             logger.info(
-                f"clearStaleAccountsForUserId: removing stale account={aid} "
-                f"(same userId={user_id})"
+                f"clearStaleAccountsForUserId: removing stale account={aid} (same userId={user_id})"
             )
             if on_clear_context_tokens:
                 on_clear_context_tokens(aid)

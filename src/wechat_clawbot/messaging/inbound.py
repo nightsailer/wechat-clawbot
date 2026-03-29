@@ -81,7 +81,9 @@ def restore_context_tokens(account_id: str) -> None:
         )
         return
     if not isinstance(tokens, dict):
-        logger.error(f"restoreContextTokens: expected dict in {file_path}, got {type(tokens).__name__}")
+        logger.error(
+            f"restoreContextTokens: expected dict in {file_path}, got {type(tokens).__name__}"
+        )
         return
     count = 0
     for user_id, token in tokens.items():
@@ -138,8 +140,7 @@ def get_context_token(account_id: str, user_id: str) -> str | None:
 def find_account_ids_by_context_token(account_ids: list[str], user_id: str) -> list[str]:
     """Find all accountIds that have an active contextToken for the given userId."""
     return [
-        aid for aid in account_ids
-        if _context_token_store.get(_context_token_key(aid, user_id))
+        aid for aid in account_ids if _context_token_store.get(_context_token_key(aid, user_id))
     ]
 
 

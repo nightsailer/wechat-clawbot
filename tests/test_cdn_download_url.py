@@ -31,8 +31,9 @@ class TestResolveCdnDownloadUrl:
 
     def test_fallback_disabled_raises(self):
         """full_url=None, ENABLE_CDN_URL_FALLBACK=False -> RuntimeError."""
-        with mock.patch.object(dl_mod, "ENABLE_CDN_URL_FALLBACK", False), pytest.raises(
-            RuntimeError, match="full_url is required"
+        with (
+            mock.patch.object(dl_mod, "ENABLE_CDN_URL_FALLBACK", False),
+            pytest.raises(RuntimeError, match="full_url is required"),
         ):
             _resolve_cdn_download_url("qp", CDN_BASE, "test", full_url=None)
 
