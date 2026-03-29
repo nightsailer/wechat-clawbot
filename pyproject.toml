@@ -15,10 +15,12 @@ dependencies = [
     "cryptography>=42.0",
     "qrcode>=7.4",
     "mcp>=1.9",
+    "pyyaml>=6.0",
 ]
 
 [project.scripts]
 wechat-clawbot-cc = "wechat_clawbot.claude_channel.cli:main"
+clawbot-gateway = "wechat_clawbot.gateway.cli:main"
 
 [project.optional-dependencies]
 silk = ["graiax-silkcoder>=0.3"]
