@@ -10,7 +10,6 @@ from dataclasses import dataclass
 
 import httpx
 
-from wechat_clawbot._version import __version__
 from wechat_clawbot.auth.accounts import load_config_route_tag
 from wechat_clawbot.util.logger import logger
 from wechat_clawbot.util.redact import redact_body, redact_url
