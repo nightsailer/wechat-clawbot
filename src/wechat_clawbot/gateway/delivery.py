@@ -10,7 +10,7 @@ from __future__ import annotations
 import functools
 import sqlite3
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import anyio
 
@@ -171,7 +171,7 @@ class DeliveryQueue:
             raise RuntimeError(msg)
         return self._conn
 
-    async def _run(self, fn: functools.partial[object]) -> object:  # type: ignore[type-arg]
+    async def _run(self, fn: functools.partial[Any]) -> Any:
         """Run *fn* in a worker thread."""
         return await anyio.to_thread.run_sync(fn)
 
