@@ -31,3 +31,9 @@ class WeixinConfigSchema(BaseModel):
     log_upload_url: str | None = Field(default=None, alias="logUploadUrl")
 
     model_config = {"populate_by_name": True}
+
+
+class GatewayModeConfig(BaseModel):
+    """Marker for gateway mode detection. See gateway/config.py for full schema."""
+
+    gateway: dict | None = None
