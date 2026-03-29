@@ -31,10 +31,16 @@ def _generate_client_id() -> str:
     return generate_id("openclaw-weixin")
 
 
-def _require_context_token(opts: WeixinApiOptions, caller: str) -> None:
-    """Raise if ``context_token`` is absent (all send operations require it)."""
+def _warn_missing_context_token(opts: WeixinApiOptions, caller: str) -> None:
+    """Log warning if ``context_token`` is absent; no longer blocks sending.
+
+    Since openclaw-weixin 2.1.1, contextToken is optional for bot-initiated
+    messages — the server will use the last active session for the recipient.
+    Missing contextToken may cause the message to not associate with the
+    correct conversation, but it will still be delivered.
+    """
     if not opts.context_token:
-        raise RuntimeError(f"{caller}: contextToken is required")
+        logger.warning(f"{caller}: contextToken missing for to, sending without context")
 
 
 def _build_upload_cdn_media(uploaded: UploadedFileInfo) -> CDNMedia:
@@ -98,7 +104,7 @@ def _build_text_message_req(
 
 async def send_message_weixin(to: str, text: str, opts: WeixinApiOptions) -> dict[str, str]:
     """Send a plain text message. Returns ``{messageId: ...}``."""
-    _require_context_token(opts, "sendMessageWeixin")
+    _warn_missing_context_token(opts, "sendMessageWeixin")
     client_id = _generate_client_id()
     req = _build_text_message_req(to, text, opts.context_token, client_id)
     try:
@@ -149,7 +155,7 @@ async def send_image_message_weixin(
     to: str, text: str, uploaded: UploadedFileInfo, opts: WeixinApiOptions
 ) -> dict[str, str]:
     """Send an image message using a previously uploaded file."""
-    _require_context_token(opts, "sendImageMessageWeixin")
+    _warn_missing_context_token(opts, "sendImageMessageWeixin")
     image_item = MessageItem(
         type=MessageItemType.IMAGE,
         image_item=ImageItem(
@@ -164,7 +170,7 @@ async def send_video_message_weixin(
     to: str, text: str, uploaded: UploadedFileInfo, opts: WeixinApiOptions
 ) -> dict[str, str]:
     """Send a video message using a previously uploaded file."""
-    _require_context_token(opts, "sendVideoMessageWeixin")
+    _warn_missing_context_token(opts, "sendVideoMessageWeixin")
     video_item = MessageItem(
         type=MessageItemType.VIDEO,
         video_item=VideoItem(
@@ -179,7 +185,7 @@ async def send_file_message_weixin(
     to: str, text: str, file_name: str, uploaded: UploadedFileInfo, opts: WeixinApiOptions
 ) -> dict[str, str]:
     """Send a file attachment using a previously uploaded file."""
-    _require_context_token(opts, "sendFileMessageWeixin")
+    _warn_missing_context_token(opts, "sendFileMessageWeixin")
     file_item = MessageItem(
         type=MessageItemType.FILE,
         file_item=FileItem(

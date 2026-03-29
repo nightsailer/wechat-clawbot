@@ -3,50 +3,39 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import sys
 import time
 import uuid
+from urllib.parse import quote
 
 import httpx
 
-from wechat_clawbot.api.client import _ensure_trailing_slash
-from wechat_clawbot.auth.accounts import load_config_route_tag
+from wechat_clawbot.api.client import ApiHttpError, api_get_fetch
 from wechat_clawbot.util.logger import logger
 from wechat_clawbot.util.redact import redact_token
 
 _ACTIVE_LOGIN_TTL_MS = 5 * 60_000
 _QR_LONG_POLL_TIMEOUT_MS = 35_000
+_GET_QRCODE_TIMEOUT_MS = 5_000
 DEFAULT_ILINK_BOT_TYPE = "3"
 _MAX_QR_REFRESH_COUNT = 3
 
-# Shared client for login HTTP requests.
-_login_client: httpx.AsyncClient | None = None
-
-
-def _get_login_client() -> httpx.AsyncClient:
-    global _login_client
-    if _login_client is None or _login_client.is_closed:
-        _login_client = httpx.AsyncClient(timeout=60.0)
-    return _login_client
-
-
-async def close_login_client() -> None:
-    """Close the shared login HTTP client. Call during application shutdown."""
-    global _login_client
-    if _login_client is not None and not _login_client.is_closed:
-        await _login_client.aclose()
-        _login_client = None
-
-
-def _inject_route_tag(headers: dict[str, str]) -> None:
-    """Add ``SKRouteTag`` header if a config route tag is available."""
-    route_tag = load_config_route_tag()
-    if route_tag:
-        headers["SKRouteTag"] = route_tag
+# Fixed API base URL for all QR code requests.
+_FIXED_BASE_URL = "https://ilinkai.weixin.qq.com"
 
 
 class _ActiveLogin:
-    __slots__ = ("session_key", "id", "qrcode", "qrcode_url", "started_at", "bot_token", "status")
+    __slots__ = (
+        "session_key",
+        "id",
+        "qrcode",
+        "qrcode_url",
+        "started_at",
+        "bot_token",
+        "status",
+        "current_api_base_url",
+    )
 
     def __init__(self, session_key: str, qrcode: str, qrcode_url: str) -> None:
         self.session_key = session_key
@@ -56,6 +45,7 @@ class _ActiveLogin:
         self.started_at = time.time() * 1000
         self.bot_token: str | None = None
         self.status: str | None = None
+        self.current_api_base_url: str = _FIXED_BASE_URL
 
     def is_fresh(self) -> bool:
         return time.time() * 1000 - self.started_at < _ACTIVE_LOGIN_TTL_MS
@@ -100,31 +90,38 @@ def _purge_expired() -> None:
 
 
 async def _fetch_qr_code(api_base_url: str, bot_type: str) -> dict:
-    base = _ensure_trailing_slash(api_base_url)
-    url = f"{base}ilink/bot/get_bot_qrcode?bot_type={bot_type}"
-    logger.info(f"Fetching QR code from: {url}")
-    headers: dict[str, str] = {}
-    _inject_route_tag(headers)
-    client = _get_login_client()
-    resp = await client.get(url, headers=headers, timeout=15.0)
-    if resp.status_code >= 400:
-        raise RuntimeError(f"Failed to fetch QR code: {resp.status_code} {resp.reason_phrase}")
-    return resp.json()
+    logger.info(f"Fetching QR code from: {api_base_url} bot_type={bot_type}")
+    raw_text = await api_get_fetch(
+        base_url=api_base_url,
+        endpoint=f"ilink/bot/get_bot_qrcode?bot_type={quote(bot_type)}",
+        timeout_ms=_GET_QRCODE_TIMEOUT_MS,
+        label="fetchQRCode",
+    )
+    return json.loads(raw_text)
+
+
+# HTTP status codes treated as transient gateway errors (retry-safe).
+_GATEWAY_ERROR_CODES = {502, 503, 504, 524}
 
 
 async def _poll_qr_status(api_base_url: str, qrcode: str) -> dict:
-    base = _ensure_trailing_slash(api_base_url)
-    url = f"{base}ilink/bot/get_qrcode_status?qrcode={qrcode}"
-    headers: dict[str, str] = {"iLink-App-ClientVersion": "1"}
-    _inject_route_tag(headers)
+    logger.debug(f"Long-poll QR status from: {api_base_url} qrcode=***")
     try:
-        client = _get_login_client()
-        resp = await client.get(url, headers=headers, timeout=_QR_LONG_POLL_TIMEOUT_MS / 1000.0)
-        if resp.status_code >= 400:
-            raise RuntimeError(f"Failed to poll QR status: {resp.status_code}")
-        return resp.json()
-    except httpx.TimeoutException:
+        raw_text = await api_get_fetch(
+            base_url=api_base_url,
+            endpoint=f"ilink/bot/get_qrcode_status?qrcode={quote(qrcode)}",
+            timeout_ms=_QR_LONG_POLL_TIMEOUT_MS,
+            label="pollQRStatus",
+        )
+        return json.loads(raw_text)
+    except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as err:
+        logger.warning(f"pollQRStatus: network error, will retry: {err}")
         return {"status": "wait"}
+    except ApiHttpError as err:
+        if err.status_code in _GATEWAY_ERROR_CODES:
+            logger.warning(f"pollQRStatus: gateway error {err.status_code}, will retry")
+            return {"status": "wait"}
+        raise
 
 
 async def start_weixin_login_with_qr(
@@ -146,12 +143,7 @@ async def start_weixin_login_with_qr(
         )
 
     try:
-        if not api_base_url:
-            return WeixinQrStartResult(
-                message="No baseUrl configured. Add channels.openclaw-weixin.baseUrl to your config.",
-                session_key=session_key,
-            )
-        qr_resp = await _fetch_qr_code(api_base_url, bot_type)
+        qr_resp = await _fetch_qr_code(_FIXED_BASE_URL, bot_type)
         logger.info(f"QR code received, qrcode={redact_token(qr_resp.get('qrcode'))}")
 
         login = _ActiveLogin(
@@ -192,7 +184,8 @@ async def wait_for_weixin_login(
 
     while time.time() * 1000 < deadline:
         try:
-            status_resp = await _poll_qr_status(api_base_url, active.qrcode)
+            current_base_url = active.current_api_base_url
+            status_resp = await _poll_qr_status(current_base_url, active.qrcode)
             status = status_resp.get("status", "wait")
             active.status = status
 
@@ -205,6 +198,21 @@ async def wait_for_weixin_login(
                     sys.stdout.write("\n👀 已扫码，在微信继续操作...\n")
                     sys.stdout.flush()
                     scanned_printed = True
+            elif status == "scaned_but_redirect":
+                # IDC 重定向：切换轮询 host
+                redirect_host = status_resp.get("redirect_host")
+                if redirect_host:
+                    new_base_url = f"https://{redirect_host}"
+                    active.current_api_base_url = new_base_url
+                    logger.info(
+                        f"waitForWeixinLogin: IDC redirect, "
+                        f"switching polling host to {redirect_host}"
+                    )
+                else:
+                    logger.warning(
+                        "waitForWeixinLogin: received scaned_but_redirect "
+                        "but redirect_host is missing, continuing with current host"
+                    )
             elif status == "expired":
                 qr_refresh_count += 1
                 if qr_refresh_count > _MAX_QR_REFRESH_COUNT:
@@ -217,12 +225,18 @@ async def wait_for_weixin_login(
                 )
                 sys.stdout.flush()
                 try:
-                    qr_resp = await _fetch_qr_code(api_base_url, bot_type)
+                    qr_resp = await _fetch_qr_code(_FIXED_BASE_URL, bot_type)
                     active.qrcode = qr_resp["qrcode"]
                     active.qrcode_url = qr_resp.get("qrcode_img_content", "")
                     active.started_at = time.time() * 1000
                     scanned_printed = False
                     sys.stdout.write("🔄 新二维码已生成，请重新扫描\n\n")
+                    sys.stdout.flush()
+                    if active.qrcode_url:
+                        sys.stdout.write("如果二维码未能成功展示，请用浏览器打开以下链接扫码：\n")
+                        sys.stdout.write(f"{active.qrcode_url}\n")
+                    else:
+                        sys.stdout.write("二维码链接未能获取，请重新开始登录流程。\n")
                     sys.stdout.flush()
                 except Exception as e:
                     _active_logins.pop(session_key, None)

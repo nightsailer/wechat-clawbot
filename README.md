@@ -2,7 +2,7 @@
 
 Python SDK for the WeChat ClawBot ilink API, with a built-in Claude Code Channel bridge.
 
-Ported from [@tencent-weixin/openclaw-weixin](https://www.npmjs.com/package/@tencent-weixin/openclaw-weixin) (TypeScript).
+Ported from [@tencent-weixin/openclaw-weixin](https://www.npmjs.com/package/@tencent-weixin/openclaw-weixin) (TypeScript), synced with upstream v2.1.1.
 
 ```
 WeChat (iOS) --> ClawBot --> ilink API --> [wechat-clawbot] --> Claude Code Session
@@ -12,12 +12,14 @@ Claude Code  <-- MCP Channel Protocol  <--  wechat_reply / wechat_send_file / we
 
 ## Features
 
-- **Full ilink API client** — getUpdates long-poll, sendMessage, getConfig, sendTyping
-- **Multi-account support** — QR code login, credential storage, account index
-- **Media pipeline** — AES-128-ECB encrypted CDN upload/download, image/video/file/voice
+- **Full ilink API client** — getUpdates long-poll, sendMessage, getConfig, sendTyping, with `iLink-App-Id` / `iLink-App-ClientVersion` protocol headers
+- **Multi-account support** — QR code login with IDC redirect, credential storage, stale account cleanup
+- **Media pipeline** — AES-128-ECB encrypted CDN upload/download with `full_url` direct-URL support, image/video/file/voice
+- **Context token persistence** — survives process restarts, disk-backed with change detection
 - **SILK transcoding** — voice message to WAV conversion (optional)
 - **Message processing** — inbound conversion, slash commands, debug mode, error notices
 - **Claude Code Channel** — MCP server bridging WeChat messages into Claude Code sessions
+- **Secure logging** — automatic redaction of sensitive fields (tokens, authorization) in log output
 - **Async-first** — built on httpx + anyio with shared connection pools
 
 ## Requirements

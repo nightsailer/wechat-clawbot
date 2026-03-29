@@ -4,6 +4,9 @@ from __future__ import annotations
 
 from urllib.parse import quote
 
+# 设为 True 时，当服务端未返回 full_url 字段，回退到客户端拼接 URL；False 则直接报错。
+ENABLE_CDN_URL_FALLBACK = True
+
 
 def build_cdn_download_url(encrypted_query_param: str, cdn_base_url: str) -> str:
     """Build a CDN download URL from ``encrypt_query_param``."""

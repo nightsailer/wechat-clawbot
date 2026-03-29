@@ -63,6 +63,12 @@ class CDNMedia:
     encrypt_query_param: str | None = None
     aes_key: str | None = None
     encrypt_type: int | None = None
+    full_url: str | None = None  # 服务端直接返回的完整下载 URL
+
+    @property
+    def has_download_source(self) -> bool:
+        """Whether this media has a usable download URL (full_url or encrypt_query_param)."""
+        return bool(self.encrypt_query_param or self.full_url)
 
 
 @dataclass
@@ -191,6 +197,7 @@ class GetUploadUrlReq:
 class GetUploadUrlResp:
     upload_param: str | None = None
     thumb_upload_param: str | None = None
+    upload_full_url: str | None = None  # 服务端直接返回的完整上传 URL
 
 
 @dataclass
@@ -244,6 +251,7 @@ def _dict_to_cdn_media(d: dict | None) -> CDNMedia | None:
         encrypt_query_param=d.get("encrypt_query_param"),
         aes_key=d.get("aes_key"),
         encrypt_type=d.get("encrypt_type"),
+        full_url=d.get("full_url"),
     )
 
 

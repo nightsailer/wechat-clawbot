@@ -55,7 +55,7 @@ async def download_media_from_item(
 
     if item.type == MessageItemType.IMAGE:
         img = item.image_item
-        if not img or not img.media or not img.media.encrypt_query_param:
+        if not img or not img.media or not img.media.has_download_source:
             return result
         aes_key_b64: str | None = None
         if img.aeskey:
@@ -65,11 +65,18 @@ async def download_media_from_item(
         try:
             if aes_key_b64:
                 buf = await download_and_decrypt_buffer(
-                    img.media.encrypt_query_param, aes_key_b64, cdn_base_url, f"{label} image"
+                    img.media.encrypt_query_param or "",
+                    aes_key_b64,
+                    cdn_base_url,
+                    f"{label} image",
+                    full_url=img.media.full_url,
                 )
             else:
                 buf = await download_plain_cdn_buffer(
-                    img.media.encrypt_query_param, cdn_base_url, f"{label} image-plain"
+                    img.media.encrypt_query_param or "",
+                    cdn_base_url,
+                    f"{label} image-plain",
+                    full_url=img.media.full_url,
                 )
             saved = await save_media(buf, None, "inbound", _WEIXIN_MEDIA_MAX_BYTES)
             result.decrypted_pic_path = saved["path"]
@@ -82,13 +89,17 @@ async def download_media_from_item(
         if (
             not voice
             or not voice.media
-            or not voice.media.encrypt_query_param
+            or not voice.media.has_download_source
             or not voice.media.aes_key
         ):
             return result
         try:
             silk_buf = await download_and_decrypt_buffer(
-                voice.media.encrypt_query_param, voice.media.aes_key, cdn_base_url, f"{label} voice"
+                voice.media.encrypt_query_param or "",
+                voice.media.aes_key,
+                cdn_base_url,
+                f"{label} voice",
+                full_url=voice.media.full_url,
             )
             wav_buf = await silk_to_wav(silk_buf)
             if wav_buf:
@@ -108,16 +119,17 @@ async def download_media_from_item(
         if (
             not file_item
             or not file_item.media
-            or not file_item.media.encrypt_query_param
+            or not file_item.media.has_download_source
             or not file_item.media.aes_key
         ):
             return result
         try:
             buf = await download_and_decrypt_buffer(
-                file_item.media.encrypt_query_param,
+                file_item.media.encrypt_query_param or "",
                 file_item.media.aes_key,
                 cdn_base_url,
                 f"{label} file",
+                full_url=file_item.media.full_url,
             )
             mime = get_mime_from_filename(file_item.file_name or "file.bin")
             saved = await save_media(
@@ -134,16 +146,17 @@ async def download_media_from_item(
         if (
             not video
             or not video.media
-            or not video.media.encrypt_query_param
+            or not video.media.has_download_source
             or not video.media.aes_key
         ):
             return result
         try:
             buf = await download_and_decrypt_buffer(
-                video.media.encrypt_query_param,
+                video.media.encrypt_query_param or "",
                 video.media.aes_key,
                 cdn_base_url,
                 f"{label} video",
+                full_url=video.media.full_url,
             )
             saved = await save_media(buf, "video/mp4", "inbound", _WEIXIN_MEDIA_MAX_BYTES)
             result.decrypted_video_path = saved["path"]

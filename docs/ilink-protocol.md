@@ -1,6 +1,6 @@
 # WeChat ClawBot iLink Bot Protocol
 
-微信 ClawBot 插件底层通信协议（iLink）的技术文档。基于 `@tencent-weixin/openclaw-weixin` v1.0.2 源码分析整理。
+微信 ClawBot 插件底层通信协议（iLink）的技术文档。基于 `@tencent-weixin/openclaw-weixin` v2.1.1 源码分析整理。
 
 ## 概述
 
@@ -27,7 +27,18 @@
 
 ### 请求头
 
-所有 API 请求携带以下 HTTP 头：
+所有 API 请求携带以下公共 HTTP 头：
+
+```
+iLink-App-Id: bot
+iLink-App-ClientVersion: {uint32}
+SKRouteTag: {routeTag}               (可选，来自配置文件)
+```
+
+- `iLink-App-Id`: 固定值 `bot`（来自 package.json 的 `ilink_appid` 字段）
+- `iLink-App-ClientVersion`: 版本号编码为 uint32，格式 `0x00MMNNPP`（如 `0.3.0` -> `768`）
+
+POST 请求额外携带：
 
 ```
 Content-Type: application/json
@@ -62,8 +73,9 @@ GET /ilink/bot/get_bot_qrcode?bot_type=3
 
 ```
 GET /ilink/bot/get_qrcode_status?qrcode={qrcode}
-Headers: iLink-App-ClientVersion: 1
 ```
+
+使用公共请求头（`iLink-App-Id`、`iLink-App-ClientVersion`）。
 
 响应状态值：
 
@@ -71,8 +83,11 @@ Headers: iLink-App-ClientVersion: 1
 |--------|------|
 | `wait` | 等待扫码 |
 | `scaned` | 已扫码，等待用户确认 |
+| `scaned_but_redirect` | 已扫码，需 IDC 重定向（v2.1.1+，见下方说明） |
 | `expired` | 二维码过期（需刷新，最多 3 次） |
 | `confirmed` | 登录成功 |
+
+**IDC 重定向**：当状态为 `scaned_but_redirect` 时，响应中包含 `redirect_host` 字段，客户端应将后续轮询请求切换到 `https://{redirect_host}` 继续轮询。这用于跨机房调度。
 
 登录成功响应：
 ```json
@@ -101,11 +116,11 @@ Headers: iLink-App-ClientVersion: 1
 | `get_bot_qrcode` | GET | 获取登录二维码 | 15s |
 | `get_qrcode_status` | GET | 轮询扫码状态 | 35s |
 
-每个 POST 请求体都包含 `base_info` 字段：
+每个 POST 请求体都包含 `base_info` 字段，`channel_version` 为当前客户端包版本号（各实现传自己的版本）：
 ```json
 {
   "base_info": {
-    "channel_version": "1.0.2"
+    "channel_version": "2.1.1"
   }
 }
 ```
@@ -120,7 +135,7 @@ Headers: iLink-App-ClientVersion: 1
 ```json
 {
   "get_updates_buf": "",
-  "base_info": { "channel_version": "1.0.2" }
+  "base_info": { "channel_version": "2.1.1" }
 }
 ```
 
@@ -160,13 +175,13 @@ Headers: iLink-App-ClientVersion: 1
       }
     ]
   },
-  "base_info": { "channel_version": "1.0.2" }
+  "base_info": { "channel_version": "2.1.1" }
 }
 ```
 
 响应：HTTP 200 OK（无响应体）
 
-**context_token 是关键字段**：每条收到的消息都带有 context_token，回复时必须回传同一个 token，否则消息无法关联到正确的对话窗口。
+**context_token**：每条收到的消息都带有 context_token，回复时应回传同一个 token 以关联到正确的对话窗口。自 iLink v2.1+ 起，context_token 为可选字段——缺失时服务端会使用最近活跃的会话，但可能无法准确匹配对话窗口。
 
 ## 消息结构
 
@@ -288,9 +303,10 @@ thumb_width    int         缩略图宽度
 
 **CDNMedia（所有媒体类型共用）**：
 ```
-encrypt_query_param   string    CDN 下载/上传参数
+encrypt_query_param   string    CDN 下载/上传参数（客户端拼接 URL 用）
 aes_key               string    base64 编码的 AES-128 密钥
 encrypt_type          int       加密方式（0=fileid, 1=packed）
+full_url              string    服务端直接返回的完整下载 URL（v2.1.1+，优先于 encrypt_query_param）
 ```
 
 **RefMessage（引用消息）**：
@@ -318,7 +334,7 @@ POST /ilink/bot/getuploadurl
   "filesize": AES加密后字节数,
   "no_need_thumb": true,
   "aeskey": "16字节AES密钥的hex表示",
-  "base_info": { "channel_version": "1.0.2" }
+  "base_info": { "channel_version": "2.1.1" }
 }
 ```
 
@@ -335,7 +351,8 @@ UploadMediaType 枚举：
 ```json
 {
   "upload_param": "加密的上传参数",
-  "thumb_upload_param": "缩略图上传参数（如需要）"
+  "thumb_upload_param": "缩略图上传参数（如需要）",
+  "upload_full_url": "完整上传 URL（v2.1.1+，优先于 upload_param）"
 }
 ```
 
@@ -368,10 +385,13 @@ Body: <加密后的二进制数据>
 
 ### 下载流程
 
-**步骤 1: 构建下载 URL**
+**步骤 1: 确定下载 URL**
+
+v2.1.1+ 优先使用服务端返回的 `full_url` 字段直接下载，无需客户端拼接：
 
 ```
-{cdn_base_url}/download?encrypted_query_param={encrypt_query_param}
+优先: CDNMedia.full_url（直接使用）
+回退: {cdn_base_url}/download?encrypted_query_param={encrypt_query_param}（客户端拼接）
 ```
 
 **步骤 2: 下载并解密**
@@ -393,7 +413,7 @@ POST /ilink/bot/getconfig
 {
   "ilink_user_id": "用户ID",
   "context_token": "可选",
-  "base_info": { "channel_version": "1.0.2" }
+  "base_info": { "channel_version": "2.1.1" }
 }
 ```
 
@@ -416,7 +436,7 @@ POST /ilink/bot/sendtyping
   "ilink_user_id": "用户ID",
   "typing_ticket": "从 getConfig 获取",
   "status": 1,
-  "base_info": { "channel_version": "1.0.2" }
+  "base_info": { "channel_version": "2.1.1" }
 }
 ```
 
@@ -475,7 +495,7 @@ WeixinMessage 包含 `group_id` 字段，表明协议原生支持群聊场景。
 
 ## 参考
 
-- TS 原版实现：`@tencent-weixin/openclaw-weixin` v1.0.2（npm）
+- TS 原版实现：`@tencent-weixin/openclaw-weixin` v2.1.1（npm）
 - Python 移植：[wechat-clawbot](https://github.com/nightsailer/wechat-clawbot)
 - 逆向分析参考：[hao-ji-xing/openclaw-weixin](https://github.com/hao-ji-xing/openclaw-weixin)
 - OpenClaw 文档：https://docs.openclaw.ai

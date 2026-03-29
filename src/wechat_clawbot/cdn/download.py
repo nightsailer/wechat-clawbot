@@ -7,7 +7,7 @@ import re
 import httpx
 
 from wechat_clawbot.cdn.aes_ecb import decrypt_aes_ecb
-from wechat_clawbot.cdn.cdn_url import build_cdn_download_url
+from wechat_clawbot.cdn.cdn_url import ENABLE_CDN_URL_FALLBACK, build_cdn_download_url
 from wechat_clawbot.util.logger import logger
 
 # Shared client for CDN downloads — reuses TCP connections across calls.
@@ -67,15 +67,32 @@ def _parse_aes_key(aes_key_base64: str, label: str) -> bytes:
     raise ValueError(msg)
 
 
+def _resolve_cdn_download_url(
+    encrypted_query_param: str,
+    cdn_base_url: str,
+    label: str,
+    full_url: str | None = None,
+) -> str:
+    """Resolve the effective CDN download URL, preferring full_url when available."""
+    if full_url:
+        return full_url
+    if ENABLE_CDN_URL_FALLBACK:
+        if not encrypted_query_param:
+            raise RuntimeError(f"{label}: neither full_url nor encrypt_query_param available")
+        return build_cdn_download_url(encrypted_query_param, cdn_base_url)
+    raise RuntimeError(f"{label}: full_url is required (CDN URL fallback is disabled)")
+
+
 async def download_and_decrypt_buffer(
     encrypted_query_param: str,
     aes_key_base64: str,
     cdn_base_url: str,
     label: str,
+    full_url: str | None = None,
 ) -> bytes:
     """Download and AES-128-ECB decrypt a CDN media file. Returns plaintext bytes."""
     key = _parse_aes_key(aes_key_base64, label)
-    url = build_cdn_download_url(encrypted_query_param, cdn_base_url)
+    url = _resolve_cdn_download_url(encrypted_query_param, cdn_base_url, label, full_url)
     logger.debug(f"{label}: fetching url={url}")
     encrypted = await _fetch_cdn_bytes(url, label)
     logger.debug(f"{label}: downloaded {len(encrypted)} bytes, decrypting")
@@ -88,8 +105,9 @@ async def download_plain_cdn_buffer(
     encrypted_query_param: str,
     cdn_base_url: str,
     label: str,
+    full_url: str | None = None,
 ) -> bytes:
     """Download plain (unencrypted) bytes from the CDN."""
-    url = build_cdn_download_url(encrypted_query_param, cdn_base_url)
+    url = _resolve_cdn_download_url(encrypted_query_param, cdn_base_url, label, full_url)
     logger.debug(f"{label}: fetching url={url}")
     return await _fetch_cdn_bytes(url, label)

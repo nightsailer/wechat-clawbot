@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import re
 from urllib.parse import urlparse, urlunparse
 
 _DEFAULT_BODY_MAX_LEN = 200
 _DEFAULT_TOKEN_PREFIX_LEN = 6
+
+# Field names whose values should be masked in logged JSON bodies.
+_SENSITIVE_FIELDS_RE = re.compile(
+    r'"(context_token|bot_token|token|authorization|Authorization)"\s*:\s*"[^"]*"'
+)
 
 
 def truncate(s: str | None, max_len: int) -> str:
@@ -27,12 +33,14 @@ def redact_token(token: str | None, prefix_len: int = _DEFAULT_TOKEN_PREFIX_LEN)
 
 
 def redact_body(body: str | None, max_len: int = _DEFAULT_BODY_MAX_LEN) -> str:
-    """Truncate a JSON body string for safe logging."""
+    """Redact known sensitive fields, then truncate for safe logging."""
     if not body:
         return "(empty)"
-    if len(body) <= max_len:
-        return body
-    return f"{body[:max_len]}…(truncated, totalLen={len(body)})"
+    # Mask values of known sensitive JSON keys: "key":"value" → "key":"<redacted>"
+    redacted = _SENSITIVE_FIELDS_RE.sub(r'"\1":"<redacted>"', body)
+    if len(redacted) <= max_len:
+        return redacted
+    return f"{redacted[:max_len]}…(truncated, totalLen={len(redacted)})"
 
 
 def redact_url(raw_url: str) -> str:

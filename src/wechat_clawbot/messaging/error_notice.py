@@ -20,10 +20,11 @@ async def send_weixin_error_notice(
     token: str | None,
     err_log: Callable[[str], None],
 ) -> None:
-    """Send a plain-text error notice. No-op when *context_token* is absent."""
+    """Send a plain-text error notice. Warns but still attempts when *context_token* is absent."""
     if not context_token:
-        logger.warning(f"sendWeixinErrorNotice: no contextToken for to={to}, cannot notify user")
-        return
+        logger.warning(
+            f"sendWeixinErrorNotice: no contextToken for to={to}, sending without context"
+        )
     try:
         await send_message_weixin(
             to=to,

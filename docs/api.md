@@ -56,12 +56,16 @@ class CDNMedia:
     encrypt_query_param: str | None   # download parameter
     aes_key: str | None               # base64-encoded AES key
     encrypt_type: int | None          # 0=fileid, 1=packed
+    full_url: str | None              # server-provided direct download URL (v0.3.0+)
+
+    @property
+    def has_download_source(self) -> bool   # True if encrypt_query_param or full_url is set
 ```
 
 #### Request/Response types
 
 - `GetUpdatesReq(get_updates_buf)` / `GetUpdatesResp(ret, errcode, errmsg, msgs, get_updates_buf, longpolling_timeout_ms)`
-- `GetUploadUrlReq(filekey, media_type, to_user_id, rawsize, rawfilemd5, filesize, ...)` / `GetUploadUrlResp(upload_param, thumb_upload_param)`
+- `GetUploadUrlReq(filekey, media_type, to_user_id, rawsize, rawfilemd5, filesize, ...)` / `GetUploadUrlResp(upload_param, thumb_upload_param, upload_full_url)`
 - `SendMessageReq(msg: WeixinMessage)`
 - `SendTypingReq(ilink_user_id, typing_ticket, status)` / `GetConfigResp(ret, errmsg, typing_ticket)`
 
@@ -77,6 +81,17 @@ def dict_to_get_updates_resp(d: dict) -> GetUpdatesResp
 ## `wechat_clawbot.api.client` — HTTP API Client
 
 All functions are `async`. Uses a shared `httpx.AsyncClient` for connection pooling.
+
+All requests include `iLink-App-Id` and `iLink-App-ClientVersion` headers (v0.3.0+).
+
+### `ApiHttpError`
+
+```python
+class ApiHttpError(RuntimeError):
+    status_code: int   # HTTP status code for structured error handling
+```
+
+Raised by `api_get_fetch` and `_api_post_fetch` on HTTP 4xx/5xx responses.
 
 ### `WeixinApiOptions`
 
@@ -135,6 +150,19 @@ Fetch bot config including `typing_ticket`.
 ```python
 async def send_typing(opts: WeixinApiOptions, body: SendTypingReq) -> None
 ```
+
+#### `api_get_fetch`
+
+```python
+async def api_get_fetch(
+    base_url: str,
+    endpoint: str,
+    timeout_ms: int,
+    label: str,
+) -> str
+```
+
+GET request wrapper with common iLink headers. Raises `ApiHttpError` on HTTP errors.
 
 #### `close_shared_client`
 
@@ -198,7 +226,12 @@ def list_indexed_weixin_account_ids() -> list[str]
 def register_weixin_account_id(account_id: str) -> None
 def load_weixin_account(account_id: str) -> WeixinAccountData | None
 def save_weixin_account(account_id: str, *, token=None, base_url=None, user_id=None) -> None
-def clear_weixin_account(account_id: str) -> None
+def clear_weixin_account(account_id: str) -> None           # removes .json + .sync.json + .context-tokens.json
+def unregister_weixin_account_id(account_id: str) -> None   # remove from persistent index
+def clear_stale_accounts_for_user_id(                       # cleanup stale accounts after re-login
+    current_account_id: str, user_id: str,
+    on_clear_context_tokens: Callable[[str], None] | None = None,
+) -> None
 ```
 
 ### Account resolution
@@ -257,8 +290,6 @@ async def wait_for_weixin_login(
     timeout_ms: int | None = None,    # default: 480_000
     verbose: bool = False,
 ) -> WeixinQrWaitResult
-
-async def close_login_client() -> None
 ```
 
 ---
@@ -286,6 +317,8 @@ def aes_ecb_padded_size(plaintext_size: int) -> int
 ## `wechat_clawbot.cdn.cdn_url` — CDN URL Builders
 
 ```python
+ENABLE_CDN_URL_FALLBACK = True   # When False, full_url is required (no client-side URL construction)
+
 def build_cdn_download_url(encrypted_query_param: str, cdn_base_url: str) -> str
 def build_cdn_upload_url(cdn_base_url: str, upload_param: str, filekey: str) -> str
 ```
@@ -300,16 +333,20 @@ async def download_and_decrypt_buffer(
     aes_key_base64: str,
     cdn_base_url: str,
     label: str,
+    full_url: str | None = None,    # preferred over encrypt_query_param when set
 ) -> bytes
 
 async def download_plain_cdn_buffer(
     encrypted_query_param: str,
     cdn_base_url: str,
     label: str,
+    full_url: str | None = None,    # preferred over encrypt_query_param when set
 ) -> bytes
 
 async def close_cdn_dl_client() -> None
 ```
+
+URL resolution priority: `full_url` > `build_cdn_download_url(encrypt_query_param)` > error (when `ENABLE_CDN_URL_FALLBACK=False`).
 
 ---
 
@@ -411,8 +448,12 @@ class WeixinMsgContext:
     command_body: str | None
     command_authorized: bool | None
 
-def set_context_token(account_id: str, user_id: str, token: str) -> None
+def set_context_token(account_id: str, user_id: str, token: str) -> None  # persists to disk, skips if unchanged
 def get_context_token(account_id: str, user_id: str) -> str | None
+def restore_context_tokens(account_id: str) -> None                       # restore from disk on startup
+def clear_context_tokens_for_account(account_id: str) -> None             # clear memory + disk
+def find_account_ids_by_context_token(account_ids: list[str], user_id: str) -> list[str]
+def get_restored_tokens_for_server(account_id: str) -> dict[str, str]     # {user_id: token}
 def is_media_item(item: MessageItem) -> bool
 def body_from_item_list(item_list: list[MessageItem] | None) -> str
 def weixin_message_to_msg_context(
@@ -433,7 +474,7 @@ async def send_video_message_weixin(to, text, uploaded: UploadedFileInfo, opts) 
 async def send_file_message_weixin(to, text, file_name, uploaded: UploadedFileInfo, opts) -> dict[str, str]
 ```
 
-All send functions require `opts.context_token` to be set. Returns `{"messageId": "..."}`.
+All send functions warn (but proceed) if `opts.context_token` is absent — the server accepts messages without it since iLink v2.1+, though they may not associate with the correct conversation. Returns `{"messageId": "..."}`.
 
 ---
 
@@ -504,7 +545,7 @@ async def send_weixin_error_notice(
 ) -> None
 ```
 
-Fire-and-forget. No-op when `context_token` is absent.
+Fire-and-forget. Warns but still attempts to send when `context_token` is absent.
 
 ---
 
@@ -572,7 +613,6 @@ class WeixinAccountConfig(BaseModel):
 class WeixinConfigSchema(BaseModel):
     # inherits all WeixinAccountConfig fields, plus:
     accounts: dict[str, WeixinAccountConfig] | None
-    log_upload_url: str | None    # alias: logUploadUrl
 ```
 
 ---
@@ -631,7 +671,7 @@ def temp_file_name(prefix: str, ext: str) -> str  # "prefix-1234567890-abcdef01.
 ```python
 def truncate(s: str | None, max_len: int) -> str
 def redact_token(token: str | None, prefix_len: int = 6) -> str
-def redact_body(body: str | None, max_len: int = 200) -> str
+def redact_body(body: str | None, max_len: int = 200) -> str   # redacts context_token/bot_token/token/authorization before truncating
 def redact_url(raw_url: str) -> str
 ```
 

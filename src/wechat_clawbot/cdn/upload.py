@@ -68,15 +68,22 @@ async def download_remote_image_to_temp(url: str, dest_dir: str) -> str:
 
 async def _upload_buffer_to_cdn(
     buf: bytes,
-    upload_param: str,
     filekey: str,
     cdn_base_url: str,
     aeskey: bytes,
     label: str,
+    upload_full_url: str | None = None,
+    upload_param: str | None = None,
 ) -> str:
     """Upload one buffer to CDN with AES-128-ECB encryption. Returns download param."""
     ciphertext = encrypt_aes_ecb(buf, aeskey)
-    cdn_url = build_cdn_upload_url(cdn_base_url, upload_param, filekey)
+    trimmed_full = (upload_full_url or "").strip()
+    if trimmed_full:
+        cdn_url = trimmed_full
+    elif upload_param:
+        cdn_url = build_cdn_upload_url(cdn_base_url, upload_param, filekey)
+    else:
+        raise RuntimeError(f"{label}: CDN upload URL missing (need upload_full_url or upload_param)")
     logger.debug(f"{label}: CDN POST url={redact_url(cdn_url)} ciphertextSize={len(ciphertext)}")
 
     download_param: str | None = None
@@ -149,17 +156,21 @@ async def _upload_media_to_cdn(
         opts=opts,
     )
 
+    upload_full_url = (upload_resp.upload_full_url or "").strip() or None
     upload_param = upload_resp.upload_param
-    if not upload_param:
-        raise RuntimeError(f"{label}: getUploadUrl returned no upload_param")
+    if not upload_full_url and not upload_param:
+        raise RuntimeError(
+            f"{label}: getUploadUrl returned no upload URL (need upload_full_url or upload_param)"
+        )
 
     download_param = await _upload_buffer_to_cdn(
         buf=plaintext,
-        upload_param=upload_param,
         filekey=filekey,
         cdn_base_url=cdn_base_url,
         aeskey=aeskey,
         label=f"{label}[orig filekey={filekey}]",
+        upload_full_url=upload_full_url,
+        upload_param=upload_param,
     )
 
     return UploadedFileInfo(

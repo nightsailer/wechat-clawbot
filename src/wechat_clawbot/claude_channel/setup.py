@@ -9,9 +9,9 @@ from __future__ import annotations
 import sys
 from datetime import datetime, timezone
 
+from wechat_clawbot.api.client import close_shared_client
 from wechat_clawbot.auth.accounts import DEFAULT_BASE_URL
 from wechat_clawbot.auth.login_qr import (
-    close_login_client,
     start_weixin_login_with_qr,
     wait_for_weixin_login,
 )
@@ -75,7 +75,7 @@ async def do_qr_login(base_url: str = DEFAULT_BASE_URL) -> AccountData | None:
         _log(f"   凭据保存至: {credentials_file_path()}")
         return account
     finally:
-        await close_login_client()
+        await close_shared_client()
 
 
 async def interactive_setup() -> None:

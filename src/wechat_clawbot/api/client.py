@@ -27,6 +27,19 @@ from .types import (
 )
 
 # ---------------------------------------------------------------------------
+# Exceptions
+# ---------------------------------------------------------------------------
+
+
+class ApiHttpError(RuntimeError):
+    """Structured HTTP error with status code for precise exception handling."""
+
+    def __init__(self, status_code: int, label: str, body: str) -> None:
+        super().__init__(f"{label} {status_code}: {body}")
+        self.status_code = status_code
+
+
+# ---------------------------------------------------------------------------
 # Timeouts
 # ---------------------------------------------------------------------------
 
@@ -72,7 +85,27 @@ async def close_shared_client() -> None:
 # Helpers
 # ---------------------------------------------------------------------------
 
-_BASE_INFO: dict = {"channel_version": __version__}
+# channel_version 跟随上游 openclaw-weixin 版本号，而非本项目版本。
+_UPSTREAM_CHANNEL_VERSION = "2.1.1"
+_BASE_INFO: dict = {"channel_version": _UPSTREAM_CHANNEL_VERSION}
+
+# iLink-App-Id: 从 package 配置读取，硬编码为 "bot"。
+ILINK_APP_ID: str = "bot"
+
+
+def _build_client_version(version: str) -> int:
+    """iLink-App-ClientVersion: uint32 encoded as 0x00MMNNPP.
+
+    e.g. "0.2.0" -> 0x00000200 = 512
+    """
+    parts = version.split(".")
+    major = int(parts[0]) if len(parts) > 0 else 0
+    minor = int(parts[1]) if len(parts) > 1 else 0
+    patch = int(parts[2]) if len(parts) > 2 else 0
+    return ((major & 0xFF) << 16) | ((minor & 0xFF) << 8) | (patch & 0xFF)
+
+
+ILINK_APP_CLIENT_VERSION: int = _build_client_version(_UPSTREAM_CHANNEL_VERSION)
 
 
 def _build_base_info() -> dict:
@@ -89,8 +122,21 @@ def _random_wechat_uin() -> str:
     return base64.b64encode(str(uint32).encode()).decode()
 
 
-def _build_headers(token: str | None, body_bytes: bytes) -> dict[str, str]:
+def _build_common_headers() -> dict[str, str]:
+    """Build headers shared by both GET and POST requests."""
     headers: dict[str, str] = {
+        "iLink-App-Id": ILINK_APP_ID,
+        "iLink-App-ClientVersion": str(ILINK_APP_CLIENT_VERSION),
+    }
+    route_tag = load_config_route_tag()
+    if route_tag:
+        headers["SKRouteTag"] = route_tag
+    return headers
+
+
+def _build_post_headers(token: str | None, body_bytes: bytes) -> dict[str, str]:
+    headers: dict[str, str] = {
+        **_build_common_headers(),
         "Content-Type": "application/json",
         "AuthorizationType": "ilink_bot_token",
         "Content-Length": str(len(body_bytes)),
@@ -98,13 +144,31 @@ def _build_headers(token: str | None, body_bytes: bytes) -> dict[str, str]:
     }
     if token and token.strip():
         headers["Authorization"] = f"Bearer {token.strip()}"
-    route_tag = load_config_route_tag()
-    if route_tag:
-        headers["SKRouteTag"] = route_tag
     return headers
 
 
-async def _api_fetch(
+async def api_get_fetch(
+    base_url: str,
+    endpoint: str,
+    timeout_ms: int,
+    label: str,
+) -> str:
+    """GET fetch wrapper for Weixin API endpoints. Returns raw response text."""
+    base = _ensure_trailing_slash(base_url)
+    url = f"{base}{endpoint}"
+    hdrs = _build_common_headers()
+    logger.debug(f"GET {redact_url(url)}")
+
+    client = _get_shared_client()
+    resp = await client.get(url, headers=hdrs, timeout=timeout_ms / 1000.0)
+    raw_text = resp.text
+    logger.debug(f"{label} status={resp.status_code} raw={redact_body(raw_text)}")
+    if resp.status_code >= 400:
+        raise ApiHttpError(resp.status_code, label, raw_text)
+    return raw_text
+
+
+async def _api_post_fetch(
     base_url: str,
     endpoint: str,
     body: str,
@@ -116,7 +180,7 @@ async def _api_fetch(
     base = _ensure_trailing_slash(base_url)
     url = f"{base}{endpoint}"
     body_bytes = body.encode("utf-8")
-    hdrs = _build_headers(token, body_bytes)
+    hdrs = _build_post_headers(token, body_bytes)
     logger.debug(f"POST {redact_url(url)} body={redact_body(body)}")
 
     client = _get_shared_client()
@@ -124,7 +188,7 @@ async def _api_fetch(
     raw_text = resp.text
     logger.debug(f"{label} status={resp.status_code} raw={redact_body(raw_text)}")
     if resp.status_code >= 400:
-        raise RuntimeError(f"{label} {resp.status_code}: {raw_text}")
+        raise ApiHttpError(resp.status_code, label, raw_text)
     return raw_text
 
 
@@ -142,7 +206,7 @@ async def get_updates(
     """Long-poll ``getUpdates``. Returns empty response on client-side timeout."""
     t = timeout_ms or DEFAULT_LONG_POLL_TIMEOUT_MS
     try:
-        raw = await _api_fetch(
+        raw = await _api_post_fetch(
             base_url=base_url,
             endpoint="ilink/bot/getupdates",
             body=json.dumps(
@@ -168,7 +232,7 @@ async def get_upload_url(
     """Get a pre-signed CDN upload URL."""
     body_dict = {k: v for k, v in _dataclass_to_dict(req).items() if v is not None}  # type: ignore[union-attr]
     body_dict["base_info"] = _build_base_info()
-    raw = await _api_fetch(
+    raw = await _api_post_fetch(
         base_url=opts.base_url,
         endpoint="ilink/bot/getuploadurl",
         body=json.dumps(body_dict),
@@ -180,6 +244,7 @@ async def get_upload_url(
     return GetUploadUrlResp(
         upload_param=d.get("upload_param"),
         thumb_upload_param=d.get("thumb_upload_param"),
+        upload_full_url=d.get("upload_full_url"),
     )
 
 
@@ -187,7 +252,7 @@ async def send_message(opts: WeixinApiOptions, body: SendMessageReq) -> None:
     """Send a single message downstream."""
     body_dict: dict = _dataclass_to_dict(body)  # type: ignore[assignment]
     body_dict["base_info"] = _build_base_info()
-    await _api_fetch(
+    await _api_post_fetch(
         base_url=opts.base_url,
         endpoint="ilink/bot/sendmessage",
         body=json.dumps(body_dict),
@@ -203,7 +268,7 @@ async def get_config(
     context_token: str | None = None,
 ) -> GetConfigResp:
     """Fetch bot config (includes ``typing_ticket``) for a given user."""
-    raw = await _api_fetch(
+    raw = await _api_post_fetch(
         base_url=opts.base_url,
         endpoint="ilink/bot/getconfig",
         body=json.dumps(
@@ -227,7 +292,7 @@ async def send_typing(opts: WeixinApiOptions, body: SendTypingReq) -> None:
     """Send a typing indicator to a user."""
     body_dict: dict = _dataclass_to_dict(body)  # type: ignore[assignment]
     body_dict["base_info"] = _build_base_info()
-    await _api_fetch(
+    await _api_post_fetch(
         base_url=opts.base_url,
         endpoint="ilink/bot/sendtyping",
         body=json.dumps(body_dict),

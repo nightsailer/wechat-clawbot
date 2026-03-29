@@ -2,7 +2,7 @@
 
 微信 ClawBot ilink API 的 Python SDK，内置 Claude Code Channel 桥接器。
 
-移植自 [@tencent-weixin/openclaw-weixin](https://www.npmjs.com/package/@tencent-weixin/openclaw-weixin)（TypeScript 版）。
+移植自 [@tencent-weixin/openclaw-weixin](https://www.npmjs.com/package/@tencent-weixin/openclaw-weixin)（TypeScript 版），已同步上游 v2.1.1。
 
 ```
 微信 (iOS) --> ClawBot --> ilink API --> [wechat-clawbot] --> Claude Code 会话
@@ -12,12 +12,14 @@ Claude Code  <-- MCP Channel 协议  <--  wechat_reply / wechat_send_file / wech
 
 ## 功能特性
 
-- **完整 ilink API 客户端** — getUpdates 长轮询、sendMessage、getConfig、sendTyping
-- **多账户支持** — 二维码扫码登录、凭证存储、账户索引
-- **媒体处理管道** — AES-128-ECB 加密 CDN 上传/下载，支持图片/视频/文件/语音
+- **完整 ilink API 客户端** — getUpdates 长轮询、sendMessage、getConfig、sendTyping，支持 `iLink-App-Id` / `iLink-App-ClientVersion` 协议头
+- **多账户支持** — 二维码扫码登录（支持 IDC 重定向）、凭证存储、过期账户自动清理
+- **媒体处理管道** — AES-128-ECB 加密 CDN 上传/下载，支持 `full_url` 直传 URL，图片/视频/文件/语音
+- **Context Token 持久化** — 进程重启不丢失会话上下文，磁盘备份 + 变更检测
 - **SILK 转码** — 语音消息转 WAV（可选依赖）
 - **消息处理** — 入站消息转换、斜杠命令、调试模式、错误通知
 - **Claude Code Channel** — MCP 服务器，将微信消息桥接到 Claude Code 会话
+- **安全日志** — 自动脱敏 token、authorization 等敏感字段
 - **异步优先** — 基于 httpx + anyio，使用共享连接池
 
 ## 环境要求

@@ -7,8 +7,13 @@ import json
 import os
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 from wechat_clawbot.storage.state_dir import resolve_state_dir
+from wechat_clawbot.util.logger import logger
 
 DEFAULT_BASE_URL = "https://ilinkai.weixin.qq.com"
 CDN_BASE_URL = "https://novac2c.cdn.weixin.qq.com/c2c"
@@ -215,10 +220,58 @@ def save_weixin_account(
         file_path.chmod(0o600)
 
 
+def unregister_weixin_account_id(account_id: str) -> None:
+    """Remove accountId from the persistent index."""
+    existing = list_indexed_weixin_account_ids()
+    updated = [i for i in existing if i != account_id]
+    if len(updated) != len(existing):
+        _resolve_account_index_path().write_text(json.dumps(updated, indent=2), "utf-8")
+
+
+def clear_stale_accounts_for_user_id(
+    current_account_id: str,
+    user_id: str,
+    on_clear_context_tokens: Callable[[str], None] | None = None,
+) -> None:
+    """Remove stale accounts sharing the same userId as the newly-bound account.
+
+    Called after a successful QR login to ensure only the latest account remains
+    for a given WeChat user, preventing ambiguous contextToken matches.
+    """
+    if not user_id:
+        return
+    all_ids = list_indexed_weixin_account_ids()
+    for aid in all_ids:
+        if aid == current_account_id:
+            continue
+        data = load_weixin_account(aid)
+        if data and data.user_id and data.user_id.strip() == user_id:
+            logger.info(
+                f"clearStaleAccountsForUserId: removing stale account={aid} "
+                f"(same userId={user_id})"
+            )
+            if on_clear_context_tokens:
+                on_clear_context_tokens(aid)
+            clear_weixin_account(aid)
+            unregister_weixin_account_id(aid)
+
+
 def clear_weixin_account(account_id: str) -> None:
-    """Remove account data file."""
-    with contextlib.suppress(FileNotFoundError):
-        _resolve_account_path(account_id).unlink()
+    """Remove all files associated with an account:
+
+    - accounts/{accountId}.json                  (credentials)
+    - accounts/{accountId}.sync.json             (getUpdates sync buf)
+    - accounts/{accountId}.context-tokens.json   (context tokens on disk)
+    """
+    dir_ = resolve_accounts_dir()
+    account_files = [
+        f"{account_id}.json",
+        f"{account_id}.sync.json",
+        f"{account_id}.context-tokens.json",
+    ]
+    for file_name in account_files:
+        with contextlib.suppress(FileNotFoundError):
+            (dir_ / file_name).unlink()
 
 
 # ---------------------------------------------------------------------------
@@ -233,29 +286,50 @@ def _resolve_config_path() -> Path:
     return resolve_state_dir() / "openclaw.json"
 
 
-def load_config_route_tag(account_id: str | None = None) -> str | None:
-    """Read ``routeTag`` from openclaw.json."""
+_cached_route_tag_section: dict | None = None
+_cached_route_tag_section_loaded: bool = False
+
+
+def _load_route_tag_section() -> dict | None:
+    """Load and cache the openclaw-weixin config section (routeTag doesn't change at runtime)."""
+    global _cached_route_tag_section, _cached_route_tag_section_loaded
+    if _cached_route_tag_section_loaded:
+        return _cached_route_tag_section
     try:
         config_path = _resolve_config_path()
         cfg = json.loads(config_path.read_text("utf-8"))
         channels = cfg.get("channels", {})
-        section = channels.get("openclaw-weixin", {})
-        if not section:
-            return None
-        if account_id:
-            accounts = section.get("accounts", {})
-            tag = accounts.get(account_id, {}).get("routeTag")
-            if isinstance(tag, int):
-                return str(tag)
-            if isinstance(tag, str) and tag.strip():
-                return tag.strip()
-        rt = section.get("routeTag")
-        if isinstance(rt, int):
-            return str(rt)
-        if isinstance(rt, str) and rt.strip():
-            return rt.strip()
-    except (FileNotFoundError, json.JSONDecodeError, OSError):
-        pass
+        section = channels.get("openclaw-weixin") or None
+        _cached_route_tag_section = section
+    except FileNotFoundError:
+        _cached_route_tag_section = None
+    except json.JSONDecodeError as e:
+        logger.warning(f"_load_route_tag_section: malformed JSON in config: {e}")
+        _cached_route_tag_section = None
+    except OSError as e:
+        logger.warning(f"_load_route_tag_section: cannot read config: {e}")
+        _cached_route_tag_section = None
+    _cached_route_tag_section_loaded = True
+    return _cached_route_tag_section
+
+
+def load_config_route_tag(account_id: str | None = None) -> str | None:
+    """Read ``routeTag`` from openclaw.json (cached after first read)."""
+    section = _load_route_tag_section()
+    if not section:
+        return None
+    if account_id:
+        accounts = section.get("accounts", {})
+        tag = accounts.get(account_id, {}).get("routeTag")
+        if isinstance(tag, int):
+            return str(tag)
+        if isinstance(tag, str) and tag.strip():
+            return tag.strip()
+    rt = section.get("routeTag")
+    if isinstance(rt, int):
+        return str(rt)
+    if isinstance(rt, str) and rt.strip():
+        return rt.strip()
     return None
 
 

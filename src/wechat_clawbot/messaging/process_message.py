@@ -162,6 +162,12 @@ async def process_one_message(
             logger.error(f"debug-timing: send FAILED err={e}")
 
 
+def _wrapper_has_downloadable_media(media_obj: Any) -> bool:
+    """Check if a media wrapper (image_item, video_item, etc.) has downloadable media."""
+    m = getattr(media_obj, "media", None) if media_obj else None
+    return m is not None and m.has_download_source
+
+
 def _find_main_media_item(item_list: list[MessageItem] | None) -> MessageItem | None:
     """Find the first downloadable media item (priority: IMAGE > VIDEO > FILE > VOICE)."""
     if not item_list:
@@ -178,19 +184,14 @@ def _find_main_media_item(item_list: list[MessageItem] | None) -> MessageItem | 
                     }[type_],
                     None,
                 )
-                if (
-                    media_obj
-                    and getattr(media_obj, "media", None)
-                    and getattr(media_obj.media, "encrypt_query_param", None)
-                ):
+                if _wrapper_has_downloadable_media(media_obj):
                     return item
     # Voice: only if no text transcription
     for item in item_list:
         if (
             item.type == MessageItemType.VOICE
             and item.voice_item
-            and item.voice_item.media
-            and item.voice_item.media.encrypt_query_param
+            and _wrapper_has_downloadable_media(item.voice_item)
             and not item.voice_item.text
         ):
             return item

@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import json
 from collections import OrderedDict
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from wechat_clawbot.api.types import MessageItem, MessageItemType, WeixinMessage
+from wechat_clawbot.auth.accounts import resolve_accounts_dir
 from wechat_clawbot.util.logger import logger
 from wechat_clawbot.util.random import generate_id
 
@@ -14,7 +16,7 @@ if TYPE_CHECKING:
     from wechat_clawbot.media.download import InboundMediaOpts
 
 # ---------------------------------------------------------------------------
-# Context token store (in-process LRU cache: accountId+userId -> contextToken)
+# Context token store (in-process cache + disk persistence)
 # ---------------------------------------------------------------------------
 
 _CONTEXT_TOKEN_MAX_ENTRIES = 10_000
@@ -27,14 +29,100 @@ def _context_token_key(account_id: str, user_id: str) -> str:
     return f"{account_id}:{user_id}"
 
 
+# ---------------------------------------------------------------------------
+# Disk persistence helpers
+# ---------------------------------------------------------------------------
+
+
+def _context_token_file(account_id: str):
+    return resolve_accounts_dir() / f"{account_id}.context-tokens.json"
+
+
+def _tokens_for_account(account_id: str) -> dict[str, str]:
+    """Extract {user_id: token} for a single account from the global store."""
+    prefix = f"{account_id}:"
+    return {k[len(prefix) :]: v for k, v in _context_token_store.items() if k.startswith(prefix)}
+
+
+def _persist_context_tokens(account_id: str) -> None:
+    """Persist all context tokens for a given account to disk.
+
+    Synchronous file I/O — the payload is a small JSON map, so blocking
+    time is negligible in practice.
+    """
+    tokens = _tokens_for_account(account_id)
+    file_path = _context_token_file(account_id)
+    try:
+        file_path.parent.mkdir(parents=True, exist_ok=True)
+        file_path.write_text(json.dumps(tokens, separators=(",", ":")), "utf-8")
+    except OSError as e:
+        logger.error(f"persistContextTokens: failed to write {file_path}: {e}")
+
+
+def restore_context_tokens(account_id: str) -> None:
+    """Restore persisted context tokens for an account into the in-memory map.
+
+    Called once during gateway start to survive restarts.
+    """
+    file_path = _context_token_file(account_id)
+    try:
+        raw = file_path.read_text("utf-8")
+    except FileNotFoundError:
+        return
+    except OSError as e:
+        logger.warning(f"restoreContextTokens: cannot read {file_path}: {e}")
+        return
+    try:
+        tokens = json.loads(raw)
+    except json.JSONDecodeError as e:
+        logger.error(
+            f"restoreContextTokens: corrupted JSON in {file_path}, "
+            f"tokens lost for account={account_id}: {e}"
+        )
+        return
+    if not isinstance(tokens, dict):
+        logger.error(f"restoreContextTokens: expected dict in {file_path}, got {type(tokens).__name__}")
+        return
+    count = 0
+    for user_id, token in tokens.items():
+        if isinstance(token, str) and token:
+            _context_token_store[_context_token_key(account_id, user_id)] = token
+            count += 1
+    logger.info(f"restoreContextTokens: restored {count} tokens for account={account_id}")
+
+
+def clear_context_tokens_for_account(account_id: str) -> None:
+    """Remove all context tokens for a given account (memory + disk)."""
+    prefix = f"{account_id}:"
+    keys_to_remove = [k for k in _context_token_store if k.startswith(prefix)]
+    for k in keys_to_remove:
+        del _context_token_store[k]
+    disk_ok = True
+    try:
+        _context_token_file(account_id).unlink()
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        disk_ok = False
+        logger.warning(f"clearContextTokensForAccount: failed to remove disk file: {e}")
+    logger.info(
+        f"clearContextTokensForAccount: cleared {len(keys_to_remove)} tokens "
+        f"for account={account_id} (disk={'ok' if disk_ok else 'failed'})"
+    )
+
+
 def set_context_token(account_id: str, user_id: str, token: str) -> None:
-    """Store a context token for a given account+user pair (LRU-bounded)."""
+    """Store a context token for a given account+user pair (memory + disk)."""
     k = _context_token_key(account_id, user_id)
-    logger.debug(f"setContextToken: key={k}")
+    # Skip disk I/O if token is unchanged (common for consecutive messages).
+    if _context_token_store.get(k) == token:
+        _context_token_store.move_to_end(k)
+        return
     _context_token_store[k] = token
     _context_token_store.move_to_end(k)
     while len(_context_token_store) > _CONTEXT_TOKEN_MAX_ENTRIES:
         _context_token_store.popitem(last=False)
+    _persist_context_tokens(account_id)
 
 
 def get_context_token(account_id: str, user_id: str) -> str | None:
@@ -45,6 +133,22 @@ def get_context_token(account_id: str, user_id: str) -> str | None:
         f"getContextToken: key={k} found={val is not None} storeSize={len(_context_token_store)}"
     )
     return val
+
+
+def find_account_ids_by_context_token(account_ids: list[str], user_id: str) -> list[str]:
+    """Find all accountIds that have an active contextToken for the given userId."""
+    return [
+        aid for aid in account_ids
+        if _context_token_store.get(_context_token_key(aid, user_id))
+    ]
+
+
+def get_restored_tokens_for_server(account_id: str) -> dict[str, str]:
+    """Return {user_id: token} for all tokens of a given account.
+
+    Used by the MCP server to populate its own context_tokens LRU after restore.
+    """
+    return _tokens_for_account(account_id)
 
 
 # ---------------------------------------------------------------------------

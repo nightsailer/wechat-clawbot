@@ -44,7 +44,12 @@ from wechat_clawbot.api.types import (
     WeixinMessage,
 )
 from wechat_clawbot.auth.accounts import CDN_BASE_URL
-from wechat_clawbot.messaging.inbound import body_from_item_list
+from wechat_clawbot.messaging.inbound import (
+    body_from_item_list,
+    get_restored_tokens_for_server,
+    restore_context_tokens,
+    set_context_token,
+)
 from wechat_clawbot.messaging.send_media import send_weixin_media_file
 from wechat_clawbot.util.random import generate_id
 
@@ -389,6 +394,7 @@ async def _poll_loop(
 
                 if msg.context_token:
                     context_tokens[sender_id] = msg.context_token
+                    set_context_token(account.account_id, sender_id, msg.context_token)
 
                 _log(f"收到消息: from={sender_id} text={text[:50]}...")
 
@@ -426,6 +432,15 @@ async def run_channel_server(account: AccountData) -> None:
     # LRU-bounded to prevent unbounded memory growth from many distinct senders
     context_tokens: _LRUDict = _LRUDict()
     api_opts = WeixinApiOptions(base_url=account.base_url, token=account.token)
+
+    # Restore persisted context tokens from disk to survive restarts.
+    if account.account_id:
+        restore_context_tokens(account.account_id)
+        restored = get_restored_tokens_for_server(account.account_id)
+        for user_id, token in restored.items():
+            context_tokens[user_id] = token
+        if restored:
+            _log(f"已恢复 {len(restored)} 个 context token（重启不丢会话）")
     typing_mgr = _TypingManager(api_opts)
 
     def _require_context_token(
