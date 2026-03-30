@@ -200,6 +200,7 @@ gateway:
   port: 8765
   admin_port: 8766
   admin_token: "your-secret-token"
+  log_level: info
 
 accounts:
   main-bot:
@@ -208,19 +209,30 @@ accounts:
 endpoints:
   claude:
     name: "Claude Code"
-    type: mcp
-    url: "http://localhost:8080/sse"
+    type: mcp            # MCP clients connect to gateway SSE
   my-bot:
     name: "My Bot"
-    type: sdk
+    type: sdk            # SDK clients connect via WebSocket
+  webhook-service:
+    name: "Webhook"
+    type: http           # Gateway POSTs messages to this URL
+    url: "https://example.com/webhook"
+    api_key: "optional-bearer-token"
 
 routing:
-  strategy: active-endpoint
+  strategy: active-endpoint   # also: prefix, smart
   mention_prefix: "@"
+  gateway_commands: ["/"]     # prefix(es) that trigger gateway commands
 
 authorization:
-  mode: allowlist
+  mode: allowlist             # also: open, invite-code
+  default_endpoints: []       # endpoints auto-bound to new users
   admins: ["admin-user-id@im.wechat"]
+
+archive:
+  enabled: false
+  path: ~/.clawbot-gateway/archive.db
+  retention_days: 0           # 0 = keep forever
 ```
 
 ### WeChat Commands
@@ -233,17 +245,18 @@ Users interact with the gateway through in-chat commands:
 | `/use <name>` | Switch active endpoint |
 | `/to <name> <message>` | Send one-off message to a specific endpoint |
 | `/status` | Show current session status |
-| `/bind` | Bind to an endpoint |
-| `/unbind` | Unbind from an endpoint |
+| `/bind <name>` | Bind to an endpoint |
+| `/unbind <name>` | Unbind from an endpoint |
 | `/help` | Show help message |
+| `/admin` | Show system info (admin only) |
 
 ### Sub-Channel Types
 
-| Type | Transport | Use Case |
-|------|-----------|----------|
-| `mcp` | SSE + JSON-RPC | Claude Code / MCP-compatible clients |
-| `sdk` | WebSocket | Custom bots using `ClawBotClient` SDK |
-| `http` | Webhook POST | Third-party services, n8n, Zapier |
+| Type | Transport | Direction | Use Case |
+|------|-----------|-----------|----------|
+| `mcp` | SSE + JSON-RPC | Client connects to gateway (`/mcp/{id}/sse`) | Claude Code / MCP-compatible clients |
+| `sdk` | WebSocket | Client connects to gateway (`/sdk/{id}/ws`) | Custom bots using `ClawBotClient` SDK |
+| `http` | Webhook POST | Gateway POSTs to endpoint URL; endpoint callbacks via `/http/{id}/callback` | Third-party services, n8n, Zapier |
 
 ### SDK Client Example
 
@@ -293,7 +306,7 @@ The admin API runs on `admin_port` (default 8766), protected by Bearer token whe
 | `clawbot-gateway account remove <id>` | Remove an account |
 | `clawbot-gateway account status [id]` | Show account status |
 | `clawbot-gateway endpoint list` | List endpoints |
-| `clawbot-gateway endpoint add <id>` | Add an endpoint |
+| `clawbot-gateway endpoint add <id> [--name NAME] [--type TYPE] [--url URL]` | Add an endpoint |
 | `clawbot-gateway endpoint remove <id>` | Remove an endpoint |
 | `clawbot-gateway user list` | List all users |
 | `clawbot-gateway user info <id>` | Show user info |
@@ -302,10 +315,18 @@ The admin API runs on `admin_port` (default 8766), protected by Bearer token whe
 | `clawbot-gateway user bind <uid> <eid>` | Bind user to endpoint |
 | `clawbot-gateway user unbind <uid> <eid>` | Unbind user from endpoint |
 | `clawbot-gateway invite list` | List active invite codes |
-| `clawbot-gateway invite create <eid>` | Create invite code |
-| `clawbot-gateway logs` | View message archive |
+| `clawbot-gateway invite create <eid> [--max-uses N] [--ttl HOURS]` | Create invite code |
+| `clawbot-gateway logs [-n LINES] [--endpoint ID] [--user ID]` | View message archive |
 
-All commands support `--json` for machine-readable output and `--gateway <url>` for remote management.
+All commands support `--json` for machine-readable output, `--gateway <url>` for remote management, `--admin-token <token>` for admin API authentication, and `--config <path>` for specifying the gateway.yaml path.
+
+**Environment variables:**
+
+| Variable | Description |
+|----------|-------------|
+| `CLAWBOT_GATEWAY_URL` | Default gateway admin URL (alternative to `--gateway`) |
+| `CLAWBOT_ADMIN_TOKEN` | Default admin Bearer token (alternative to `--admin-token`) |
+| `CLAWBOT_GATEWAY_CONFIG` | Path to `gateway.yaml` (alternative to `--config`) |
 
 ## Project Structure
 
@@ -330,6 +351,11 @@ src/wechat_clawbot/
     delivery.py     #   SQLite-backed delivery queue
     router.py       #   Message routing engine
     session.py      #   User session/state persistence
+    endpoint_manager.py  # Endpoint registry with health tracking
+    invite.py       #   Invite code system
+    auth.py         #   Authorization module (allowlist/open/invite-code)
+    archive.py      #   Message archive sidecar (SQLite)
+    types.py        #   Core dataclasses and enums
   sdk/              # ClawBotClient library for custom bots
 ```
 

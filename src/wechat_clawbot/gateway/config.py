@@ -169,7 +169,7 @@ def load_gateway_config(config_path: Path | None = None) -> GatewayConfig:
 
 _SCAFFOLD_TEMPLATE = """\
 # ClawBot Gateway configuration
-# Docs: https://github.com/nicedouble/wechat-clawbot
+# Docs: https://github.com/nightsailer/wechat-clawbot
 
 # -- Server -------------------------------------------------------------------
 gateway:

@@ -37,7 +37,7 @@
 - Poller manager for multi-account polling
 
 ### Phase 6: HTTP Sub-Channel and Ops
-- HTTP webhook sub-channel (`/http/{id}/webhook`)
+- HTTP webhook sub-channel (`/http/{id}/callback`)
 - Full CLI tool (`clawbot-gateway`) with 25+ subcommands
 - Gateway application orchestrator
 - Integration testing

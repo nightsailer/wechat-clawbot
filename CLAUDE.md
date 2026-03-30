@@ -52,9 +52,9 @@ uv run pytest tests/test_gateway.py # single file
 ## Linting and Formatting
 
 ```bash
-ruff check src/ --fix               # lint with auto-fix
-ruff format src/                    # format
-ruff check src/ tests/ && ruff format src/ tests/  # full check
+uv run ruff check src/ --fix               # lint with auto-fix
+uv run ruff format src/                    # format
+uv run ruff check src/ tests/ && uv run ruff format src/ tests/  # full check
 ```
 
 ## Key Conventions

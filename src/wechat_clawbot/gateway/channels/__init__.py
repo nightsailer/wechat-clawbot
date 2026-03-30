@@ -5,7 +5,7 @@ connecting the gateway to upstream AI endpoints:
 
 - :mod:`~.mcp_channel` — MCP SSE transport (``/mcp/{id}/sse``)
 - :mod:`~.sdk_channel` — SDK WebSocket transport (``/sdk/{id}/ws``)
-- :mod:`~.http_channel` — HTTP Webhook transport (``/http/{id}/webhook``)
+- :mod:`~.http_channel` — HTTP Webhook transport (``/http/{id}/callback``)
 
 All sub-channels implement the :class:`~.base.SubChannel` protocol.
 """

@@ -9,7 +9,7 @@ Gateway v2 — multi-user, multi-endpoint message routing gateway for WeChat Cla
 ### Added
 
 - **Gateway mode with M:N routing** — multiple WeChat Bot accounts map to multiple upstream AI endpoints, with per-user session isolation and endpoint switching
-- **Three sub-channel types** — MCP SSE (`/mcp/{id}/sse`), SDK WebSocket (`/sdk/{id}/ws`), and HTTP Webhook (`/http/{id}/webhook`) for connecting different backend types
+- **Three sub-channel types** — MCP SSE (`/mcp/{id}/sse`), SDK WebSocket (`/sdk/{id}/ws`), and HTTP Webhook (`/http/{id}/callback`) for connecting different backend types
 - **Delivery queue with SQLite persistence** — WAL-mode SQLite-backed durable queue with retry logic and expiry; no messages lost on restart
 - **Message archive (sidecar)** — optional SQLite-backed archive recording every inbound/outbound message with retention policy support
 - **Session management** — per-user state persistence with active endpoint tracking, endpoint bindings, and per-endpoint session context
