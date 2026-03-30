@@ -42,6 +42,8 @@ class SDKChannel:
         self._on_connect = on_connect
         self._on_disconnect = on_disconnect
         self._connections: dict[str, WebSocket] = {}  # endpoint_id -> ws
+        # Valid endpoint IDs — set by gateway app; empty means accept any
+        self.valid_endpoint_ids: set[str] = set()
 
     def get_routes(self) -> list[WebSocketRoute]:
         """Return Starlette routes for SDK channel."""
@@ -51,6 +53,13 @@ class SDKChannel:
 
     async def _handle_ws(self, ws: WebSocket) -> None:
         endpoint_id = ws.path_params["endpoint_id"]
+
+        # Reject unknown endpoint IDs
+        if self.valid_endpoint_ids and endpoint_id not in self.valid_endpoint_ids:
+            logger.warning("Rejected SDK connection for unknown endpoint: %s", endpoint_id)
+            await ws.close(code=4003, reason="unknown endpoint")
+            return
+
         await ws.accept()
         self._connections[endpoint_id] = ws
         logger.info("SDK client connected: %s", endpoint_id)
@@ -139,4 +148,4 @@ class SDKChannel:
 
     def get_connected_endpoints(self) -> list[str]:
         """Return list of currently connected endpoint IDs."""
-        return sorted(self._connections.keys())
+        return sorted(self._connections)

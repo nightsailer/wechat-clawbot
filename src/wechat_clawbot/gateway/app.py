@@ -134,9 +134,18 @@ class GatewayApp:
                     self._endpoint_manager.set_connected(ep_id, connected=True)
         await self._http_channel.start()
 
-        self._channels = [
-            c for c in [self._mcp_channel, self._sdk_channel, self._http_channel] if c
-        ]
+        self._channels = [self._mcp_channel, self._sdk_channel, self._http_channel]
+
+        # Populate valid endpoint IDs for connection validation (C2 fix)
+        valid_ids = set(self._config.endpoints.keys())
+        self._mcp_channel.valid_endpoint_ids = valid_ids
+        self._sdk_channel.valid_endpoint_ids = valid_ids
+
+        # Mount SDK and HTTP routes into the MCP Starlette app so all
+        # sub-channel endpoints are served on the same HTTP port.
+        mcp_app = self._mcp_channel.get_asgi_app()
+        mcp_app.routes.extend(self._sdk_channel.get_routes())
+        mcp_app.routes.extend(self._http_channel.get_routes())
 
         if self._config.archive.enabled:
             archive_path = self._config.archive.path
@@ -379,7 +388,6 @@ class GatewayApp:
                 break
 
         if delivered:
-            assert self._delivery is not None
             await self._delivery.mark_delivered(record.message_id)
         else:
             logger.warning(

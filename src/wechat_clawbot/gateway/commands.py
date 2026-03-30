@@ -125,10 +125,7 @@ async def _handle_status(ctx: GatewayCommandContext) -> str:
             active_name = info.config.name or active
 
     bound_count = len(user.bindings)
-    online_count = 0
-    for b in user.bindings:
-        if ctx.endpoint_manager.is_online(b.endpoint_id):
-            online_count += 1
+    online_count = sum(1 for b in user.bindings if ctx.endpoint_manager.is_online(b.endpoint_id))
 
     lines = [
         f"Active endpoint: {active_name or 'none'}",

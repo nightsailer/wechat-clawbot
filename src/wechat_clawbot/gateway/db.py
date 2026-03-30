@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING, Any
 import anyio
 
 if TYPE_CHECKING:
-    import functools
+    from collections.abc import Callable
     from pathlib import Path
 
 
@@ -51,6 +51,6 @@ class AsyncSQLiteStore:
             raise RuntimeError(f"{type(self).__name__} is not open — call open() first")
         return self._conn
 
-    async def _run(self, fn: functools.partial[Any]) -> Any:
+    async def _run(self, fn: Callable[[], Any]) -> Any:
         """Run *fn* in a worker thread, serialized via capacity limiter."""
         return await anyio.to_thread.run_sync(fn, limiter=self._limiter)

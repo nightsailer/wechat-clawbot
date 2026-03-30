@@ -36,12 +36,16 @@ class EndpointManager:
 
     def _rebuild_index(self, endpoint_id: str, config: EndpointConfig) -> None:
         """Update the name/id lookup indices for a single endpoint."""
-        # Remove old entries that point to this endpoint
-        self._name_index = {k: v for k, v in self._name_index.items() if v != endpoint_id}
-        self._id_index = {k: v for k, v in self._id_index.items() if v != endpoint_id}
-        # Add new entries
+        self._purge_index_entries(endpoint_id)
         self._name_index[config.name.lower()] = endpoint_id
         self._id_index[config.id.lower()] = endpoint_id
+
+    def _purge_index_entries(self, endpoint_id: str) -> None:
+        """Remove all index entries pointing to *endpoint_id*."""
+        for index in (self._name_index, self._id_index):
+            keys_to_remove = [k for k, v in index.items() if v == endpoint_id]
+            for k in keys_to_remove:
+                del index[k]
 
     # ---- registration --------------------------------------------------------
 
@@ -64,8 +68,7 @@ class EndpointManager:
         """Remove an endpoint from the registry."""
         removed = self._endpoints.pop(endpoint_id, None)
         if removed:
-            self._name_index = {k: v for k, v in self._name_index.items() if v != endpoint_id}
-            self._id_index = {k: v for k, v in self._id_index.items() if v != endpoint_id}
+            self._purge_index_entries(endpoint_id)
             logger.info("Unregistered endpoint: %s", endpoint_id)
 
     # ---- queries -------------------------------------------------------------

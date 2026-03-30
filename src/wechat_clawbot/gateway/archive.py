@@ -14,7 +14,6 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     import sqlite3
-    from pathlib import Path
 
 from .db import AsyncSQLiteStore
 
@@ -64,9 +63,6 @@ class MessageArchive(AsyncSQLiteStore):
         automatically on :meth:`open`.
     """
 
-    def __init__(self, db_path: Path) -> None:
-        super().__init__(db_path)
-
     def _get_schema_sql(self) -> str:
         return _CREATE_TABLE
 
@@ -96,7 +92,7 @@ class MessageArchive(AsyncSQLiteStore):
             )
             self._conn.commit()
 
-        await self._run(_do)  # type: ignore[arg-type]
+        await self._run(_do)
 
     async def record_inbound(
         self,
@@ -169,7 +165,7 @@ class MessageArchive(AsyncSQLiteStore):
             rows = self._conn.execute(sql, params).fetchall()
             return [_row_to_dict(r) for r in rows]
 
-        return await self._run(_do)  # type: ignore[arg-type]
+        return await self._run(_do)
 
     # ---- maintenance ---------------------------------------------------------
 
@@ -188,4 +184,4 @@ class MessageArchive(AsyncSQLiteStore):
             self._conn.commit()
             return cur.rowcount
 
-        return await self._run(_do)  # type: ignore[arg-type]
+        return await self._run(_do)

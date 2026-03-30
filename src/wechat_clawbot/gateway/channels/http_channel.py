@@ -68,7 +68,10 @@ class HTTPChannel:
             if not hmac.compare_digest(auth, expected):
                 return JSONResponse({"error": "unauthorized"}, status_code=401)
 
-        body = await request.json()
+        try:
+            body = await request.json()
+        except Exception:
+            return JSONResponse({"error": "invalid JSON body"}, status_code=400)
         sender_id: str = body.get("sender_id", "")
         text: str = body.get("text", "")
         if sender_id and text:

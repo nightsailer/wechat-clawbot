@@ -75,6 +75,8 @@ class MCPChannel:
         # endpoint_id -> SseServerTransport (needed for POST handling)
         self._transports: dict[str, SseServerTransport] = {}
         self._app: Starlette | None = None
+        # Valid endpoint IDs — set by gateway app; empty means accept any
+        self.valid_endpoint_ids: set[str] = set()
 
     # ---- ASGI app -----------------------------------------------------------
 
@@ -142,9 +144,15 @@ class MCPChannel:
 
     # ---- HTTP handlers ------------------------------------------------------
 
-    async def _handle_sse(self, request: Request) -> None:
+    async def _handle_sse(self, request: Request) -> JSONResponse | None:
         """Handle SSE connection from an MCP client."""
         endpoint_id: str = request.path_params["endpoint_id"]
+
+        # Reject unknown endpoint IDs
+        if self.valid_endpoint_ids and endpoint_id not in self.valid_endpoint_ids:
+            logger.warning("Rejected MCP connection for unknown endpoint: %s", endpoint_id)
+            return JSONResponse({"error": "unknown endpoint"}, status_code=403)
+
         logger.info("MCP client connecting for endpoint: %s", endpoint_id)
 
         transport = SseServerTransport(f"/mcp/{endpoint_id}/messages")

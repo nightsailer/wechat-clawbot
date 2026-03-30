@@ -69,7 +69,7 @@ async def poll_loop(
         When set, the loop exits cleanly.
     """
     await anyio.to_thread.run_sync(
-        functools.partial(lambda p: p.parent.mkdir(parents=True, exist_ok=True), sync_buf_path)
+        functools.partial(sync_buf_path.parent.mkdir, parents=True, exist_ok=True)
     )
     sync_buf: str = (
         await anyio.to_thread.run_sync(functools.partial(load_get_updates_buf, sync_buf_path)) or ""

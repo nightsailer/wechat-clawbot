@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     import sqlite3
-    from pathlib import Path
 
 from .db import AsyncSQLiteStore
 from .types import DeliveryRecord, DeliveryStatus
@@ -140,9 +139,6 @@ class DeliveryQueue(AsyncSQLiteStore):
         automatically on :meth:`open`.
     """
 
-    def __init__(self, db_path: Path) -> None:
-        super().__init__(db_path)
-
     def _get_schema_sql(self) -> str:
         return _CREATE_TABLE + _CREATE_INDEXES
 
@@ -150,14 +146,7 @@ class DeliveryQueue(AsyncSQLiteStore):
 
     async def enqueue(self, record: DeliveryRecord) -> int:
         """Insert a delivery record and return its auto-generated row ID."""
-        return int(
-            await self._run(
-                functools.partial(
-                    self._enqueue_sync,
-                    record,
-                )
-            )
-        )
+        return int(await self._run(functools.partial(self._enqueue_sync, record)))
 
     def _enqueue_sync(self, record: DeliveryRecord) -> int:
         cur = self._db.execute(
@@ -254,7 +243,7 @@ class DeliveryQueue(AsyncSQLiteStore):
 
         Returns the number of rows deleted.
         """
-        count = await self._run(functools.partial(self._cleanup_expired_sync))
+        count = await self._run(self._cleanup_expired_sync)  # type: ignore[arg-type]
         return int(count)  # type: ignore[arg-type]
 
     def _cleanup_expired_sync(self) -> int:
