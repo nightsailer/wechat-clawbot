@@ -141,6 +141,28 @@ class SessionStore:
         self.update_user(user)
         return True
 
+    def record_user_account(self, user_id: str, account_id: str) -> None:
+        """Record which Bot account a user communicates through.
+
+        Updates the user's ``account_id`` if it has changed, so replies
+        can be routed back through the correct account.
+        """
+        user = self._cache.get(user_id)
+        if user is None:
+            return
+        if user.account_id != account_id:
+            user.account_id = account_id
+            self.update_user(user)
+
+    def resolve_account(self, user_id: str) -> str:
+        """Resolve which Bot account to use for sending to this user.
+
+        Returns the ``account_id`` last recorded for this user, or an
+        empty string if unknown.
+        """
+        user = self._cache.get(user_id)
+        return user.account_id if user else ""
+
     def list_users(self) -> list[UserState]:
         return list(self._cache.values())
 
