@@ -93,7 +93,7 @@ claude mcp add wechat -- wechat-clawbot-cc serve
 ### 3. Start Claude Code with the WeChat channel
 
 ```bash
-claude --channels server:wechat
+claude --dangerously-load-development-channels server:wechat
 ```
 
 Send a message in WeChat ClawBot, and Claude will reply.
@@ -109,7 +109,7 @@ If you already have a running Gateway, use bridge mode instead of direct QR logi
 claude mcp add wechat -- wechat-clawbot-cc serve --gateway http://localhost:8765 --endpoint my-project
 
 # Start Claude Code with WeChat channel
-claude --channels server:wechat
+claude --dangerously-load-development-channels server:wechat
 ```
 
 WeChat messages are pushed into the Claude Code session via `notifications/claude/channel`. Claude replies using the `wechat_reply` tool.

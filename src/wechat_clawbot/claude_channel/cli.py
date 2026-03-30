@@ -36,11 +36,11 @@ Options for serve:
 Quick start (direct mode):
   1. wechat-clawbot-cc setup
   2. claude mcp add wechat -- wechat-clawbot-cc serve
-  3. claude --channels server:wechat
+  3. claude --dangerously-load-development-channels server:wechat
 
 Quick start (bridge mode):
   claude mcp add wechat -- wechat-clawbot-cc serve --gateway http://localhost:8765 --endpoint claude
-  claude --channels server:wechat
+  claude --dangerously-load-development-channels server:wechat
 """.strip()
     )
 

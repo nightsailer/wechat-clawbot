@@ -93,7 +93,7 @@ claude mcp add wechat -- wechat-clawbot-cc serve
 ### 3. 启动 Claude Code + 微信通道
 
 ```bash
-claude --channels server:wechat
+claude --dangerously-load-development-channels server:wechat
 ```
 
 在微信 ClawBot 中发送消息，Claude 会自动回复。
@@ -109,7 +109,7 @@ claude --channels server:wechat
 claude mcp add wechat -- wechat-clawbot-cc serve --gateway http://localhost:8765 --endpoint my-project
 
 # 启动 Claude Code + 微信通道
-claude --channels server:wechat
+claude --dangerously-load-development-channels server:wechat
 ```
 
 微信消息会通过 `notifications/claude/channel` 自动推送到 Claude Code 对话中，Claude 使用 `wechat_reply` 工具回复。

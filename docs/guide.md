@@ -46,7 +46,7 @@ This tells Claude Code that there is an MCP server called "wechat" that it can c
 ### Step 4: Start Claude Code with the WeChat Channel
 
 ```bash
-claude --channels server:wechat
+claude --dangerously-load-development-channels server:wechat
 ```
 
 Claude Code starts and begins listening for WeChat messages. When someone sends a message to your ClawBot, Claude will see it and can reply using the `wechat_reply` tool.
@@ -74,7 +74,7 @@ Once connected, Claude Code has access to three tools:
 |---------|----------|
 | QR code expired | Re-run `wechat-clawbot-cc setup` |
 | "No credentials found" | Run `wechat-clawbot-cc setup` before `serve` |
-| No messages appearing | Make sure you started Claude Code with `--channels server:wechat` |
+| No messages appearing | Make sure you started Claude Code with `--dangerously-load-development-channels server:wechat` |
 | Messages stop arriving | Session may have expired; re-run `wechat-clawbot-cc setup` |
 
 ---
@@ -253,7 +253,7 @@ claude mcp add wechat -- wechat-clawbot-cc serve \
   --api-key s3cret-t0ken-ch4nge-me
 
 # Start Claude Code with WeChat channel
-claude --channels server:wechat
+claude --dangerously-load-development-channels server:wechat
 ```
 
 **Developer using Codex (bridge mode):**
