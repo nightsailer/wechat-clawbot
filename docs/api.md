@@ -484,7 +484,7 @@ def build_channel_notification(sender_id: str, text: str) -> JSONRPCNotification
     "type": "object",
     "properties": {
       "sender_id": { "type": "string", "description": "xxx@im.wechat format" },
-      "text": { "type": "string", "description": "plain text, no markdown" }
+      "text": { "type": "string", "description": "text (limited Markdown: bold, links, lists only)" }
     },
     "required": ["sender_id", "text"]
   }

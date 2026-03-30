@@ -882,7 +882,7 @@ src/wechat_clawbot/
 - **SQLite WAL 模式** — 投递队列和归档使用 WAL 模式 SQLite，通过 `AsyncSQLiteStore` 封装
 - **线程卸载** — SQLite 操作通过 `anyio.to_thread.run_sync` 在工作线程中执行
 - **Starlette HTTP** — 网关和管理 API 使用 Starlette ASGI 框架
-- **微信回复禁止 Markdown** — 网关命令的响应使用纯文本（微信不渲染 Markdown）
+- **微信有限 Markdown 支持** — 微信仅支持 **加粗**、[链接](url)、有序/无序列表。不支持 *斜体*、`代码`、代码块、引用、标题、删除线。不要用 # 开头（微信会解析为标签链接）。
 - **Ruff 代码检查** — 在 `pyproject.toml` 中配置，目标版本 Python 3.10+
 
 ### 添加新的子通道类型

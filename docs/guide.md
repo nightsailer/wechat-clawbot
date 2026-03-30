@@ -882,7 +882,7 @@ src/wechat_clawbot/
 - **SQLite with WAL mode** — Delivery queue and archive use WAL-mode SQLite via `AsyncSQLiteStore`
 - **Thread offloading** — SQLite operations run in worker threads via `anyio.to_thread.run_sync`
 - **Starlette for HTTP** — Gateway and admin API use Starlette ASGI
-- **No markdown in WeChat replies** — Gateway command responses use plain text (WeChat does not render markdown)
+- **Limited Markdown in WeChat** — WeChat supports **bold**, [links](url), and ordered/unordered lists only. Do NOT use *italic*, `code`, code blocks, blockquotes, headings, or strikethrough. Do NOT prefix text with # (WeChat treats it as a tag link).
 - **Ruff for linting** — Configured in `pyproject.toml`, targeting Python 3.10+
 
 ### Adding a New Sub-Channel Type
