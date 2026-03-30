@@ -16,15 +16,15 @@ Two operating modes:
 > **New to this project?** Read the [Usage Guide](docs/guide.md) for step-by-step scenarios covering deployment, daily operations, SDK development, and more.
 
 ```
-                          ┌─────────────────────────────────────────────┐
-Channel Mode:             │  WeChat ──> ilink API ──> [bridge] ──> Claude Code  │
-                          └─────────────────────────────────────────────┘
+                ┌────────────────────────────────────────────────────┐
+Channel Mode:   │  WeChat ──> iLink API ──> [bridge] ──> Claude Code │
+                └────────────────────────────────────────────────────┘
 
-                          ┌──────────────────────────────────────────────────────┐
-                          │              ┌──> MCP SSE ──> Claude Code          │
-Gateway Mode:             │  WeChat Bots ┤──> SDK WS  ──> Custom Bot           │
-                          │  (M Bots:N)  └──> HTTP    ──> Webhook Service      │
-                          └──────────────────────────────────────────────────────┘
+                ┌────────────────────────────────────────────────────┐
+                │                ┌──> MCP SSE ──> Claude Code        │
+Gateway Mode:   │  WeChat Bots ─┤──> SDK WS  ──> Custom Bot         │
+                │                └──> HTTP    ──> Webhook Service    │
+                └────────────────────────────────────────────────────┘
 ```
 
 ## Features
