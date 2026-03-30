@@ -14,13 +14,15 @@ from wechat_clawbot.api.client import WeixinApiOptions
 from wechat_clawbot.messaging.inbound import get_context_token
 from wechat_clawbot.messaging.send import send_message_weixin
 
+from .admin import AdminAPI
 from .auth import AuthZModule
 from .channels.mcp_channel import MCPChannel
 from .commands import GatewayCommandContext, handle_command
 from .config import GatewayConfig, resolve_gateway_state_dir
 from .delivery import DeliveryQueue
 from .endpoint_manager import EndpointManager
-from .poller import Poller
+from .invite import InviteManager
+from .poller import PollerManager
 from .router import Router
 from .session import SessionStore
 from .types import (
@@ -42,12 +44,14 @@ class GatewayApp:
         self._state_dir = resolve_gateway_state_dir()
         self._delivery: DeliveryQueue | None = None
         self._mcp_channel: MCPChannel | None = None
-        self._poller: Poller | None = None
+        self._poller_manager: PollerManager | None = None
         self._stop_event: anyio.Event | None = None
         self._session_store: SessionStore | None = None
         self._authz: AuthZModule | None = None
         self._endpoint_manager: EndpointManager | None = None
         self._router: Router | None = None
+        self._invite_manager: InviteManager | None = None
+        self._admin_api: AdminAPI | None = None
 
     async def start(self) -> None:
         """Start the gateway."""
@@ -85,6 +89,9 @@ class GatewayApp:
         self._delivery = DeliveryQueue(db_path)
         await self._delivery.open()
 
+        # Init invite manager
+        self._invite_manager = InviteManager(self._state_dir)
+
         # Init MCP channel with connect/disconnect callbacks
         self._mcp_channel = MCPChannel(
             on_reply=self._handle_reply,
@@ -94,39 +101,45 @@ class GatewayApp:
             on_disconnect=self._on_endpoint_disconnected,
         )
 
-        # Get first account config
-        account_id = next(iter(self._config.accounts))
-        account_cfg = self._config.accounts[account_id]
+        # Init PollerManager and register all configured accounts
+        self._poller_manager = PollerManager(self._state_dir)
+        for account_id, account_cfg in self._config.accounts.items():
+            token = account_cfg.token
+            base_url = account_cfg.base_url
 
-        # Load account credentials (read from credentials file or use inline)
-        token = account_cfg.token
-        base_url = account_cfg.base_url
+            if account_cfg.credentials and not token:
+                cred_path = Path(account_cfg.credentials).expanduser()
+                if cred_path.exists():
+                    cred_data = json.loads(cred_path.read_text())
+                    token = cred_data.get("token", "")
+                    base_url = cred_data.get("baseUrl", base_url)
 
-        if account_cfg.credentials and not token:
-            # Load from credentials file
-            cred_path = Path(account_cfg.credentials).expanduser()
-            if cred_path.exists():
-                cred_data = json.loads(cred_path.read_text())
-                token = cred_data.get("token", "")
-                base_url = cred_data.get("baseUrl", base_url)
+            self._poller_manager.add_account(
+                account_id=account_id,
+                base_url=base_url,
+                token=token,
+                on_message=self._on_inbound_message,
+            )
+            logger.info("Registered account: %s", account_id)
 
-        # Init poller
-        self._poller = Poller(
-            account_id=account_id,
-            base_url=base_url,
-            token=token,
-            on_message=self._on_inbound_message,
-            state_dir=self._state_dir,
+        # Init Admin API
+        self._admin_api = AdminAPI(
+            config=self._config,
+            session_store=self._session_store,
+            endpoint_manager=self._endpoint_manager,
+            invite_manager=self._invite_manager,
+            poller_manager=self._poller_manager,
         )
 
-        # Run poller + HTTP server concurrently
+        # Run poller + HTTP servers concurrently
         self._stop_event = anyio.Event()
 
-        assert self._poller is not None
+        assert self._poller_manager is not None
         assert self._stop_event is not None
         async with anyio.create_task_group() as tg:
-            tg.start_soon(self._poller.run, self._stop_event)
+            tg.start_soon(self._poller_manager.start_all, self._stop_event)
             tg.start_soon(self._run_http_server)
+            tg.start_soon(self._run_admin_server)
             logger.info("Gateway started successfully")
             # Wait for stop signal
             await self._stop_event.wait()
@@ -156,6 +169,26 @@ class GatewayApp:
             log_level=self._config.gateway.log_level,
         )
         server = uvicorn.Server(config)
+        await server.serve()
+
+    async def _run_admin_server(self) -> None:
+        """Run the admin HTTP server on the admin port."""
+        import uvicorn
+
+        assert self._admin_api is not None
+        app = self._admin_api.get_asgi_app()
+        config = uvicorn.Config(
+            app,
+            host=self._config.gateway.host,
+            port=self._config.gateway.admin_port,
+            log_level=self._config.gateway.log_level,
+        )
+        server = uvicorn.Server(config)
+        logger.info(
+            "Admin API listening on %s:%d",
+            self._config.gateway.host,
+            self._config.gateway.admin_port,
+        )
         await server.serve()
 
     # ---- endpoint connect/disconnect callbacks --------------------------------
@@ -213,6 +246,9 @@ class GatewayApp:
                 f"Welcome! You are connected to endpoint: {user.active_endpoint}",
             )
 
+        # Record which account this user communicates through
+        self._session_store.record_user_account(sender_id, account_id)
+
         # Store context token if present
         if msg.context_token:
             self._session_store.set_context_token(account_id, sender_id, msg.context_token)
@@ -222,7 +258,9 @@ class GatewayApp:
 
         # 4. Handle by route type
         if route.type == RouteType.GATEWAY_COMMAND:
-            await self._handle_gateway_command(account_id, sender_id, route.command, route.command_args, route.error)
+            await self._handle_gateway_command(
+                account_id, sender_id, route.command, route.command_args, route.error
+            )
             return
 
         if route.type == RouteType.COMMAND_TO:
@@ -237,9 +275,7 @@ class GatewayApp:
         if route.type == RouteType.MENTION:
             if not route.endpoint_id:
                 # Mention didn't resolve — shouldn't happen since router returns None
-                await self._send_gateway_message(
-                    account_id, sender_id, "Endpoint not found."
-                )
+                await self._send_gateway_message(account_id, sender_id, "Endpoint not found.")
                 return
             await self._deliver_to_endpoint(
                 account_id, sender_id, route.endpoint_id, route.cleaned_text, msg
@@ -357,8 +393,17 @@ class GatewayApp:
 
         If the reply comes from a non-active endpoint, prefix it with the
         endpoint name so the user knows which endpoint is responding.
+
+        Uses the session store to resolve which account to reply through.
         """
-        account_id = next(iter(self._config.accounts))
+        # Resolve account from session (multi-account aware)
+        account_id = ""
+        if self._session_store:
+            account_id = self._session_store.resolve_account(sender_id)
+        if not account_id:
+            # Fall back to first configured account
+            account_id = next(iter(self._config.accounts))
+
         opts = self._resolve_account_api_options(account_id, sender_id)
 
         # Add endpoint name prefix if reply is from non-active endpoint
@@ -385,9 +430,7 @@ class GatewayApp:
         # TODO: implement typing indicator
         logger.warning("typing not yet implemented in gateway mode")
 
-    async def _send_gateway_message(
-        self, account_id: str, sender_id: str, text: str
-    ) -> None:
+    async def _send_gateway_message(self, account_id: str, sender_id: str, text: str) -> None:
         """Send a gateway-originated message directly to a user."""
         try:
             opts = self._resolve_account_api_options(account_id, sender_id)
