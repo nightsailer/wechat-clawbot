@@ -47,6 +47,12 @@ SendFileCallback = Callable[[str, str, str, str], Awaitable[None]]
 TypingCallback = Callable[[str, str], Awaitable[None]]
 """(endpoint_id, sender_id) -> None"""
 
+ConnectCallback = Callable[[str], Any]
+"""(endpoint_id) -> None  — called synchronously when an endpoint connects."""
+
+DisconnectCallback = Callable[[str], Any]
+"""(endpoint_id) -> None  — called synchronously when an endpoint disconnects."""
+
 # ---- instructions (same as claude_channel/server.py) -----------------------
 
 INSTRUCTIONS = "\n".join(
@@ -152,10 +158,14 @@ class MCPChannel:
         on_reply: ReplyCallback,
         on_send_file: SendFileCallback | None = None,
         on_typing: TypingCallback | None = None,
+        on_connect: ConnectCallback | None = None,
+        on_disconnect: DisconnectCallback | None = None,
     ) -> None:
         self._on_reply = on_reply
         self._on_send_file = on_send_file
         self._on_typing = on_typing
+        self._on_connect = on_connect
+        self._on_disconnect = on_disconnect
 
         # endpoint_id -> write_stream for pushing notifications
         self._write_streams: dict[str, ObjectSendStream[SessionMessage]] = {}
@@ -247,6 +257,8 @@ class MCPChannel:
             self._write_streams[endpoint_id] = write_stream
             self._connected.add(endpoint_id)
             logger.info("MCP client connected for endpoint: %s", endpoint_id)
+            if self._on_connect:
+                self._on_connect(endpoint_id)
 
             try:
                 init_options = server.create_initialization_options(
@@ -258,6 +270,8 @@ class MCPChannel:
                 self._write_streams.pop(endpoint_id, None)
                 self._transports.pop(endpoint_id, None)
                 logger.info("MCP client disconnected for endpoint: %s", endpoint_id)
+                if self._on_disconnect:
+                    self._on_disconnect(endpoint_id)
 
     async def _handle_messages(self, request: Request) -> None:
         """Handle POST messages from an MCP client."""
