@@ -21,7 +21,7 @@ from wechat_clawbot.api.session_guard import (
     pause_session,
 )
 from wechat_clawbot.api.types import MessageType
-from wechat_clawbot.messaging.inbound import body_from_item_list, set_context_token
+from wechat_clawbot.messaging.inbound import body_from_item_list
 from wechat_clawbot.storage.sync_buf import load_get_updates_buf, save_get_updates_buf
 
 from .types import InboundMessage
@@ -157,9 +157,7 @@ class Poller:
                     text = body_from_item_list(msg.item_list)
                     context_token = msg.context_token
 
-                    # Cache context token
-                    if context_token:
-                        set_context_token(self.account_id, sender_id, context_token)
+                    # context_token caching is handled by app._on_inbound_message
 
                     inbound = InboundMessage(
                         account_id=self.account_id,

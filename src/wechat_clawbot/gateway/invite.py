@@ -7,15 +7,14 @@ endpoints (or gain access in ``invite-code`` authorization mode).
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
-import os
 import secrets
-import tempfile
 import time
 from dataclasses import asdict, dataclass, field
 from typing import TYPE_CHECKING
+
+from wechat_clawbot.util.fs import atomic_write_text
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -123,22 +122,22 @@ class InviteManager:
         except Exception:
             logger.exception("Failed to load invites from %s", self._file)
 
+    def _purge_expired(self) -> None:
+        """Remove expired and exhausted invite codes."""
+        now = time.time()
+        self._invites = {
+            code: inv
+            for code, inv in self._invites.items()
+            if (inv.expires_at == 0 or inv.expires_at > now)
+            and (inv.max_uses == 0 or inv.used_count < inv.max_uses)
+        }
+
     def _save(self) -> None:
         """Persist invite codes to disk atomically."""
-        self._file.parent.mkdir(parents=True, exist_ok=True)
+        self._purge_expired()
         payload = json.dumps(
             [asdict(i) for i in self._invites.values()],
             indent=2,
             ensure_ascii=False,
         )
-        fd, tmp = tempfile.mkstemp(dir=self._file.parent, suffix=".tmp")
-        try:
-            os.write(fd, payload.encode())
-            os.close(fd)
-            os.replace(tmp, self._file)
-        except Exception:
-            with contextlib.suppress(OSError):
-                os.close(fd)
-            if os.path.exists(tmp):
-                os.unlink(tmp)
-            raise
+        atomic_write_text(self._file, payload)

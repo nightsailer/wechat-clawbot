@@ -11,6 +11,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING
 
+from .commands import GATEWAY_COMMANDS
 from .types import RouteResult, RouteType
 
 if TYPE_CHECKING:
@@ -19,9 +20,6 @@ if TYPE_CHECKING:
     from .session import SessionStore
 
 logger = logging.getLogger(__name__)
-
-# Gateway commands that are recognized after the command prefix.
-GATEWAY_COMMANDS = frozenset({"list", "use", "to", "status", "bind", "unbind", "help", "admin"})
 
 
 class Router:

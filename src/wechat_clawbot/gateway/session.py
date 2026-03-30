@@ -2,16 +2,14 @@
 
 from __future__ import annotations
 
-import contextlib
 import json
 import logging
-import os
 import re
-import tempfile
 import time
 from typing import TYPE_CHECKING, Any
 
 from wechat_clawbot.messaging.inbound import get_context_token, set_context_token
+from wechat_clawbot.util.fs import atomic_write_text
 
 from .types import EndpointBinding, EndpointSession, UserRole, UserState
 
@@ -52,17 +50,7 @@ class SessionStore:
         """Persist user state to disk atomically."""
         path = self._user_file(user.user_id)
         data = self._user_state_to_dict(user)
-        fd, tmp = tempfile.mkstemp(dir=path.parent, suffix=".tmp")
-        try:
-            os.write(fd, json.dumps(data, indent=2, ensure_ascii=False).encode())
-            os.close(fd)
-            os.replace(tmp, path)
-        except Exception:
-            with contextlib.suppress(OSError):
-                os.close(fd)
-            if os.path.exists(tmp):
-                os.unlink(tmp)
-            raise
+        atomic_write_text(path, json.dumps(data, indent=2, ensure_ascii=False))
 
     def get_user(self, user_id: str) -> UserState | None:
         return self._cache.get(user_id)

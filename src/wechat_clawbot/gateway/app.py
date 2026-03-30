@@ -7,6 +7,7 @@ import logging
 import time
 import uuid
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import anyio
 
@@ -37,6 +38,9 @@ from .types import (
     RouteType,
 )
 
+if TYPE_CHECKING:
+    from .channels.base import SubChannel
+
 logger = logging.getLogger(__name__)
 
 
@@ -59,6 +63,8 @@ class GatewayApp:
         self._router: Router | None = None
         self._invite_manager: InviteManager | None = None
         self._admin_api: AdminAPI | None = None
+        self._credentials_cache: dict[str, tuple[str, str]] = {}
+        self._channels: list[SubChannel] = []
 
     async def start(self) -> None:
         """Start the gateway."""
@@ -131,6 +137,11 @@ class GatewayApp:
                     self._endpoint_manager.set_connected(ep_id, connected=True)
         await self._http_channel.start()
 
+        # Build channel dispatch list
+        self._channels = [
+            c for c in [self._mcp_channel, self._sdk_channel, self._http_channel] if c
+        ]
+
         # Init message archive if enabled
         if self._config.archive.enabled:
             archive_path = self._config.archive.path
@@ -140,8 +151,8 @@ class GatewayApp:
             await self._archive.open()
             logger.info("Message archive enabled: %s", archive_path)
 
-        # Init PollerManager and register all configured accounts
-        self._poller_manager = PollerManager(self._state_dir)
+        # Resolve and cache credentials for each account
+        self._credentials_cache = {}
         for account_id, account_cfg in self._config.accounts.items():
             token = account_cfg.token
             base_url = account_cfg.base_url
@@ -153,6 +164,11 @@ class GatewayApp:
                     token = cred_data.get("token", "")
                     base_url = cred_data.get("baseUrl", base_url)
 
+            self._credentials_cache[account_id] = (token, base_url)
+
+        # Init PollerManager and register all configured accounts
+        self._poller_manager = PollerManager(self._state_dir)
+        for account_id, (token, base_url) in self._credentials_cache.items():
             self._poller_manager.add_account(
                 account_id=account_id,
                 base_url=base_url,
@@ -399,29 +415,17 @@ class GatewayApp:
         assert self._delivery is not None
         await self._delivery.enqueue(record)
 
-        # Try to deliver via the appropriate sub-channel
+        # Try to deliver via the first connected sub-channel
         delivered = False
-        if self._mcp_channel and self._mcp_channel.is_endpoint_connected(endpoint_id):
-            delivered = await self._mcp_channel.deliver_message(
-                endpoint_id=endpoint_id,
-                sender_id=sender_id,
-                text=text,
-                context_token=msg.context_token,
-            )
-        elif self._sdk_channel and self._sdk_channel.is_endpoint_connected(endpoint_id):
-            delivered = await self._sdk_channel.deliver_message(
-                endpoint_id=endpoint_id,
-                sender_id=sender_id,
-                text=text,
-                context_token=msg.context_token,
-            )
-        elif self._http_channel and self._http_channel.is_endpoint_connected(endpoint_id):
-            delivered = await self._http_channel.deliver_message(
-                endpoint_id=endpoint_id,
-                sender_id=sender_id,
-                text=text,
-                context_token=msg.context_token,
-            )
+        for channel in self._channels:
+            if channel.is_endpoint_connected(endpoint_id):
+                delivered = await channel.deliver_message(
+                    endpoint_id=endpoint_id,
+                    sender_id=sender_id,
+                    text=text,
+                    context_token=msg.context_token,
+                )
+                break
 
         if delivered:
             assert self._delivery is not None
@@ -433,17 +437,7 @@ class GatewayApp:
 
     def _resolve_account_api_options(self, account_id: str, sender_id: str) -> WeixinApiOptions:
         """Build WeixinApiOptions for the given account and sender."""
-        account_cfg = self._config.accounts[account_id]
-        token = account_cfg.token
-        base_url = account_cfg.base_url
-
-        # Load token from credentials if needed
-        if account_cfg.credentials and not token:
-            cred_path = Path(account_cfg.credentials).expanduser()
-            if cred_path.exists():
-                cred_data = json.loads(cred_path.read_text())
-                token = cred_data.get("token", "")
-                base_url = cred_data.get("baseUrl", base_url)
+        token, base_url = self._credentials_cache.get(account_id, ("", ""))
 
         # Retrieve cached context token via session store or fallback
         ctx_token: str | None = None

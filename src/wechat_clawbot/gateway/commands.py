@@ -12,6 +12,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from .auth import AuthZModule
     from .endpoint_manager import EndpointManager
     from .session import SessionStore
@@ -32,18 +34,17 @@ class GatewayCommandContext:
     authz: AuthZModule
 
 
+# Module-level handler registry — maps command names to async handlers.
+# Populated after handler functions are defined (see bottom of module).
+HANDLERS: dict[str, Callable[[GatewayCommandContext], Awaitable[str]]] = {}
+
+# Canonical set of gateway command names, importable by router.py.
+GATEWAY_COMMANDS: frozenset[str] = frozenset()
+
+
 async def handle_command(ctx: GatewayCommandContext) -> str:
     """Dispatch to the appropriate command handler, return response text."""
-    handlers = {
-        "list": _handle_list,
-        "use": _handle_use,
-        "status": _handle_status,
-        "bind": _handle_bind,
-        "unbind": _handle_unbind,
-        "help": _handle_help,
-        "admin": _handle_admin,
-    }
-    handler = handlers.get(ctx.command)
+    handler = HANDLERS.get(ctx.command)
     if handler is None:
         return f"Unknown command: /{ctx.command}\nType /help for available commands."
     return await handler(ctx)
@@ -226,3 +227,23 @@ async def _handle_admin(ctx: GatewayCommandContext) -> str:
         lines.append(f"  {name} [{status}] (type={ep.config.type.value})")
 
     return "\n".join(lines)
+
+
+# ---------------------------------------------------------------------------
+# Populate module-level registry after all handlers are defined.
+# ---------------------------------------------------------------------------
+
+HANDLERS.update(
+    {
+        "list": _handle_list,
+        "use": _handle_use,
+        "status": _handle_status,
+        "bind": _handle_bind,
+        "unbind": _handle_unbind,
+        "help": _handle_help,
+        "admin": _handle_admin,
+    }
+)
+
+# Include "to" which is handled specially by the router as COMMAND_TO.
+GATEWAY_COMMANDS = frozenset(HANDLERS) | {"to"}

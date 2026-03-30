@@ -43,6 +43,8 @@ CREATE TABLE IF NOT EXISTS delivery_queue (
 _CREATE_INDEXES = """\
 CREATE INDEX IF NOT EXISTS idx_dq_status ON delivery_queue(status);
 CREATE INDEX IF NOT EXISTS idx_dq_endpoint ON delivery_queue(endpoint_id, status);
+CREATE INDEX IF NOT EXISTS idx_dq_status_created ON delivery_queue(status, created_at);
+CREATE INDEX IF NOT EXISTS idx_dq_status_retry ON delivery_queue(status, next_retry_at);
 """
 
 _INSERT = """\
@@ -68,6 +70,7 @@ _PENDING_FOR_ENDPOINT = """\
 SELECT * FROM delivery_queue
  WHERE endpoint_id = ? AND status = 'pending'
  ORDER BY created_at ASC
+ LIMIT 100
 """
 
 _EXPIRED_FOR_NOTIFICATION = """\
@@ -86,6 +89,7 @@ _RETRYABLE = """\
 SELECT * FROM delivery_queue
  WHERE status = 'pending' AND next_retry_at IS NOT NULL AND next_retry_at <= ?
  ORDER BY next_retry_at ASC
+ LIMIT 100
 """
 
 _CLEANUP_DELIVERED = """\
