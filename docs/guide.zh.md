@@ -146,7 +146,7 @@ codex mcp add wechat -- wechat-clawbot-cc serve --gateway http://localhost:8765 
 
 开始之前，先确定以下事项：
 
-- **需要几个微信 Bot 账户？** 每个 Bot 属于不同的微信用户（一对一绑定）。大多数场景一个 Bot 就够了。多 Bot 适用于跨微信账号扩容或隔离不同业务。
+- **需要几个微信 Bot 账户？** 每个微信账号只能创建一个 Bot，且一对一绑定。单人使用网关管理多个项目端点只需一个 Bot；团队多人协作则每人各自一个 Bot（一个微信号 = 一个 Bot）。
 - **端点如何命名？** 按项目或团队成员命名（如 `project-alpha`、`alice-claude`、`support-bot`）。
 - **访问控制策略：** `open`（任何人可用）、`allowlist`（仅预授权用户）、`invite-code`（用户需兑换邀请码）。
 - **服务器：** 网关需要运行在微信（公网）和开发者（内网）都能访问的机器上。

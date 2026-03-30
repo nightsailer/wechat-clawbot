@@ -146,7 +146,7 @@ You are setting up a gateway to route messages from one or more WeChat Bot accou
 
 Before you start, decide on:
 
-- **How many WeChat Bot accounts?** Each Bot belongs to a different WeChat user (1:1 binding). One Bot is enough for most setups. Multiple Bots are for scaling or separating concerns across different WeChat accounts.
+- **How many WeChat Bot accounts?** Each WeChat account can only create one Bot (1:1 binding). A single person managing multiple project endpoints needs just one Bot. For team collaboration, each team member needs their own Bot (one WeChat account = one Bot).
 - **What endpoints?** Name them after projects or team members (e.g., `project-alpha`, `alice-claude`, `support-bot`).
 - **Access control:** Who can use the bot? Options are `open` (anyone), `allowlist` (pre-approved users only), or `invite-code` (users redeem a code to gain access).
 - **Server:** The gateway needs to run on a machine accessible to both WeChat (internet) and your developers (network).
