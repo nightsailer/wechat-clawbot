@@ -1,4 +1,7 @@
-"""Gateway CLI — command-line interface for managing the gateway."""
+"""Gateway CLI — command-line interface for managing the gateway.
+
+Requires the ``gateway`` extra: ``pip install wechat-clawbot[gateway]``
+"""
 
 from __future__ import annotations
 
@@ -16,6 +19,27 @@ from .config import (
     resolve_gateway_state_dir,
     scaffold_gateway_config,
 )
+
+
+def _check_gateway_deps() -> None:
+    """Verify gateway optional dependencies are installed."""
+    missing = []
+    try:
+        import yaml  # noqa: F401
+    except ImportError:
+        missing.append("pyyaml")
+    try:
+        import uvicorn  # noqa: F401
+    except ImportError:
+        missing.append("uvicorn")
+    if missing:
+        print(
+            f"Missing dependencies: {', '.join(missing)}\n"
+            "Install with: pip install wechat-clawbot[gateway]",
+            file=sys.stderr,
+        )
+        sys.exit(1)
+
 
 _PID_FILE_NAME = "gateway.pid"
 _ENV_GATEWAY_URL = "CLAWBOT_GATEWAY_URL"
@@ -82,6 +106,7 @@ def _remote_request(
 
 def main() -> None:
     """Entry point for clawbot-gateway CLI."""
+    _check_gateway_deps()
     parser = argparse.ArgumentParser(
         prog="clawbot-gateway",
         description="WeChat ClawBot Gateway — M:N message routing gateway",

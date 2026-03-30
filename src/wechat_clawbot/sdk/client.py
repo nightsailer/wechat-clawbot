@@ -70,7 +70,8 @@ class ClawBotClient:
             logger.info("Connected to gateway: %s", self.ws_url)
         except ImportError:
             raise ImportError(
-                "websockets package required for SDK client. Install with: pip install websockets"
+                "websockets package required for SDK client. "
+                "Install with: pip install wechat-clawbot[sdk]"
             ) from None
 
     async def close(self) -> None:
