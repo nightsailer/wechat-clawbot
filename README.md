@@ -94,6 +94,20 @@ claude --channels server:wechat
 
 Send a message in WeChat ClawBot, and Claude will reply.
 
+### Bridge Mode (via Gateway)
+
+If you already have a running Gateway, you can use bridge mode instead of direct login. This connects to the Gateway's SSE endpoint and forwards messages:
+
+```bash
+# Register the MCP server in bridge mode
+claude mcp add wechat -- wechat-clawbot-cc serve --gateway http://localhost:8765 --endpoint claude
+
+# Start Claude Code with the WeChat channel
+claude --channels server:wechat
+```
+
+Bridge mode also works with Codex (via `wechat_get_messages` tool and `notifications/resources/updated`).
+
 ## Quick Start — Python SDK
 
 ```python

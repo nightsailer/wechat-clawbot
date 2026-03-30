@@ -94,6 +94,20 @@ claude --channels server:wechat
 
 在微信 ClawBot 中发送消息，Claude 会自动回复。
 
+### 桥接模式（通过网关）
+
+如果你已经运行了网关（Gateway），可以使用桥接模式，无需直接扫码登录。桥接模式连接到网关的 SSE 端点并转发消息：
+
+```bash
+# 以桥接模式注册 MCP 服务器
+claude mcp add wechat -- wechat-clawbot-cc serve --gateway http://localhost:8765 --endpoint claude
+
+# 启动 Claude Code + 微信通道
+claude --channels server:wechat
+```
+
+桥接模式同时支持 Codex（通过 `wechat_get_messages` 工具和 `notifications/resources/updated` 通知）。
+
 ## 快速开始 — Python SDK
 
 ```python
