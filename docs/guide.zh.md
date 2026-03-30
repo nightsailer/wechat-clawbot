@@ -138,13 +138,15 @@ codex mcp add wechat -- wechat-clawbot-cc serve --gateway http://localhost:8765 
 
 ## 场景三：团队部署 — 网关 + 多个 AI 后端
 
-你是团队负责人，需要为多名开发者搭建共享微信网关。每位开发者连接自己的 Claude Code 或 Codex 实例，用户通过同一个微信 Bot 与不同的 AI 后端交互。
+> **微信 Bot 约束：** 每个微信账号只能创建一个 Bot，且该 Bot 与创建者的微信账号一对一绑定（1:1）。多人无法共享同一个 Bot。网关管理多个 Bot（每个属于不同微信用户），将消息路由到多个端点。
+
+你需要搭建一个网关，将一个或多个微信 Bot 账户的消息路由到多个 AI 后端。每个 Bot 属于不同的微信用户。开发者将自己的 Claude Code 或 Codex 实例作为独立端点连接到网关。
 
 ### 规划
 
 开始之前，先确定以下事项：
 
-- **需要几个微信 Bot 账户？** 大多数团队一个就够了。多账户适用于扩容或隔离不同业务。
+- **需要几个微信 Bot 账户？** 每个 Bot 属于不同的微信用户（一对一绑定）。大多数场景一个 Bot 就够了。多 Bot 适用于跨微信账号扩容或隔离不同业务。
 - **端点如何命名？** 按项目或团队成员命名（如 `project-alpha`、`alice-claude`、`support-bot`）。
 - **访问控制策略：** `open`（任何人可用）、`allowlist`（仅预授权用户）、`invite-code`（用户需兑换邀请码）。
 - **服务器：** 网关需要运行在微信（公网）和开发者（内网）都能访问的机器上。
@@ -843,7 +845,7 @@ src/wechat_clawbot/
     credentials.py      #   凭据存储（~/.claude/channels/wechat/）
     setup.py            #   交互式扫码登录
   config/               # Pydantic 配置 Schema
-  gateway/              # M:N 路由网关
+  gateway/              # 多 Bot、多端点路由网关
     channels/           #   子通道实现
       base.py           #     SubChannel 协议 + 回调类型定义
       mcp_channel.py    #     MCP SSE 子通道

@@ -109,7 +109,7 @@ def main() -> None:
     _check_gateway_deps()
     parser = argparse.ArgumentParser(
         prog="clawbot-gateway",
-        description="WeChat ClawBot Gateway — M:N message routing gateway",
+        description="WeChat ClawBot Gateway — multi-Bot, multi-endpoint message routing gateway",
     )
     parser.add_argument("--config", type=Path, help="Path to gateway.yaml")
     parser.add_argument("--json", action="store_true", dest="json_output", help="JSON output")

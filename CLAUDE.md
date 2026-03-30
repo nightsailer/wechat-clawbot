@@ -1,13 +1,15 @@
 # CLAUDE.md
 
-Project: **wechat-clawbot** — WeChat iLink Bot SDK with multi-user gateway for AI backends.
+Project: **wechat-clawbot** — WeChat iLink Bot SDK with multi-endpoint gateway for AI backends.
+
+> **WeChat Bot Constraint:** Each WeChat account can create only one Bot, and that Bot is exclusively bound to the creator's WeChat account (1:1). Multiple people cannot share a single Bot. The gateway manages multiple Bots (each from a different WeChat user) routing to multiple endpoints.
 
 ## Architecture
 
 Two operating modes:
 
 - **Channel Mode** (`claude_channel/`) — single-user MCP bridge connecting one WeChat account to one Claude Code session
-- **Gateway Mode** (`gateway/`) — M:N routing gateway: multiple WeChat Bot accounts route messages to multiple upstream AI endpoints (MCP SSE, SDK WebSocket, HTTP Webhook)
+- **Gateway Mode** (`gateway/`) — multi-Bot, multi-endpoint routing gateway: multiple WeChat Bot accounts (each 1:1 bound to its creator's WeChat account) route messages to multiple upstream AI endpoints (MCP SSE, SDK WebSocket, HTTP Webhook)
 
 ## Key Directories
 
@@ -18,7 +20,7 @@ src/wechat_clawbot/
   cdn/              AES-128-ECB CDN upload/download pipeline
   claude_channel/   Claude Code MCP Channel bridge (CLI + server)
   config/           Pydantic configuration schema
-  gateway/          M:N routing gateway
+  gateway/          Multi-Bot, multi-endpoint routing gateway
     channels/       Sub-channel implementations (MCP SSE, SDK WebSocket, HTTP Webhook)
     admin.py        Admin HTTP API (Starlette, Bearer auth)
     app.py          Main gateway orchestrator (GatewayApp)

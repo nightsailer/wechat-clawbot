@@ -7,7 +7,7 @@
 
 ## Overview
 
-The Gateway v2 design introduces M:N multi-user, multi-endpoint message routing for WeChat ClawBot. Multiple WeChat Bot accounts (downstream) route messages to multiple upstream AI endpoints via configurable sub-channels (MCP SSE, SDK WebSocket, HTTP Webhook).
+The Gateway v2 design introduces multi-Bot, multi-endpoint message routing for WeChat ClawBot. Multiple WeChat Bot accounts (downstream, each 1:1 bound to its creator's WeChat account) route messages to multiple upstream AI endpoints via configurable sub-channels (MCP SSE, SDK WebSocket, HTTP Webhook).
 
 ## Core Components
 

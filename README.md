@@ -2,14 +2,16 @@
 
 [中文版](README.zh.md) | English
 
-WeChat iLink Bot SDK with multi-user gateway for AI backends (Claude Code, Codex, custom bots).
+WeChat iLink Bot SDK with multi-endpoint gateway for AI backends (Claude Code, Codex, custom bots).
 
 Ported from [@tencent-weixin/openclaw-weixin](https://www.npmjs.com/package/@tencent-weixin/openclaw-weixin) (TypeScript), synced with upstream v2.1.1.
+
+> **WeChat Bot Constraint:** Each WeChat account can create only one Bot, and that Bot is exclusively bound to the creator's WeChat account (1:1). Multiple people cannot share a single Bot. The gateway manages multiple Bots (each from a different WeChat user) routing to multiple endpoints.
 
 Two operating modes:
 
 - **Channel Mode** — single-user, single-endpoint MCP bridge for Claude Code
-- **Gateway Mode** (v0.4.0+) — M:N multi-user, multi-endpoint routing gateway
+- **Gateway Mode** (v0.4.0+) — multi-Bot, multi-endpoint routing gateway
 
 > **New to this project?** Read the [Usage Guide](docs/guide.md) for step-by-step scenarios covering deployment, daily operations, SDK development, and more.
 
@@ -18,23 +20,23 @@ Two operating modes:
 Channel Mode:             │  WeChat ──> ilink API ──> [bridge] ──> Claude Code  │
                           └─────────────────────────────────────────────┘
 
-                          ┌─────────────────────────────────────────────┐
-                          │           ┌──> MCP SSE ──> Claude Code      │
-Gateway Mode:             │  WeChat ──┤──> SDK WS  ──> Custom Bot       │
-                          │   (M:N)   └──> HTTP    ──> Webhook Service  │
-                          └─────────────────────────────────────────────┘
+                          ┌──────────────────────────────────────────────────────┐
+                          │              ┌──> MCP SSE ──> Claude Code          │
+Gateway Mode:             │  WeChat Bots ┤──> SDK WS  ──> Custom Bot           │
+                          │  (M Bots:N)  └──> HTTP    ──> Webhook Service      │
+                          └──────────────────────────────────────────────────────┘
 ```
 
 ## Features
 
 - **Full ilink API client** — getUpdates long-poll, sendMessage, getConfig, sendTyping, with `iLink-App-Id` / `iLink-App-ClientVersion` protocol headers
-- **Multi-account support** — QR code login with IDC redirect, credential storage, stale account cleanup
+- **Multi-Bot account support** — QR code login with IDC redirect, credential storage, stale account cleanup (each Bot is 1:1 bound to its creator's WeChat account)
 - **Media pipeline** — AES-128-ECB encrypted CDN upload/download with `full_url` direct-URL support, image/video/file/voice
 - **Context token persistence** — survives process restarts, disk-backed with change detection
 - **SILK transcoding** — voice message to WAV conversion (optional)
 - **Message processing** — inbound conversion, slash commands, debug mode, error notices
 - **Claude Code Channel** — MCP server bridging WeChat messages into Claude Code sessions
-- **Gateway mode** — M:N routing gateway with delivery queue, session management, admin API, and SDK client library
+- **Gateway mode** — multi-Bot, multi-endpoint routing gateway with delivery queue, session management, admin API, and SDK client library
 - **Secure logging** — automatic redaction of sensitive fields (tokens, authorization) in log output
 - **Async-first** — built on httpx + anyio with shared connection pools
 
@@ -169,11 +171,11 @@ asyncio.run(main())
 
 ## Gateway Mode (v0.4.0+)
 
-The gateway provides M:N routing: multiple WeChat Bot accounts can route messages to multiple upstream AI endpoints. Each user independently selects, switches, and binds endpoints via in-chat commands.
+The gateway provides multi-Bot, multi-endpoint routing: multiple WeChat Bot accounts (each exclusively owned by a different WeChat user) can route messages to multiple upstream AI endpoints. Each Bot owner independently selects, switches, and binds endpoints via in-chat commands.
 
 ### Architecture
 
-- **Accounts** (downstream) — one or more WeChat Bot accounts, each polling ilink API
+- **Accounts** (downstream) — one or more WeChat Bot accounts (each 1:1 bound to its creator's WeChat account), each polling ilink API
 - **Endpoints** (upstream) — AI backends connected via MCP SSE, SDK WebSocket, or HTTP webhook
 - **Router** — resolves each inbound message to an endpoint based on active selection, `@mention`, or `/command`
 - **Session store** — per-user state (active endpoint, bindings, context tokens) persisted to disk
@@ -346,7 +348,7 @@ src/wechat_clawbot/
   storage/          # State directory, sync buffer persistence
   util/             # Logger, ID generation, redaction
   claude_channel/   # Claude Code MCP Channel bridge (CLI + server)
-  gateway/          # M:N routing gateway (v0.4.0+)
+  gateway/          # Multi-Bot, multi-endpoint routing gateway (v0.4.0+)
     channels/       #   Sub-channel implementations (MCP, SDK, HTTP)
     admin.py        #   Admin HTTP API server
     app.py          #   Main gateway orchestrator

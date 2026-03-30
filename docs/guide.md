@@ -138,13 +138,15 @@ All tools from Scenario 1, plus:
 
 ## Scenario 3: Team Setup — Gateway + Multiple AI Backends
 
-You are a team lead setting up a shared WeChat gateway for multiple developers. Each developer connects their own Claude Code or Codex instance to the gateway, and users interact with different AI backends through the same WeChat Bot.
+> **WeChat Bot Constraint:** Each WeChat account can create only one Bot, and that Bot is exclusively bound to the creator's WeChat account (1:1). Multiple people cannot share a single Bot. The gateway manages multiple Bots (each from a different WeChat user) routing to multiple endpoints.
+
+You are setting up a gateway to route messages from one or more WeChat Bot accounts to multiple AI backends. Each Bot is owned by a different WeChat user. Developers connect their own Claude Code or Codex instance to the gateway as separate endpoints.
 
 ### Planning
 
 Before you start, decide on:
 
-- **How many WeChat Bot accounts?** One is enough for most teams. Multiple accounts are for scaling or separating concerns.
+- **How many WeChat Bot accounts?** Each Bot belongs to a different WeChat user (1:1 binding). One Bot is enough for most setups. Multiple Bots are for scaling or separating concerns across different WeChat accounts.
 - **What endpoints?** Name them after projects or team members (e.g., `project-alpha`, `alice-claude`, `support-bot`).
 - **Access control:** Who can use the bot? Options are `open` (anyone), `allowlist` (pre-approved users only), or `invite-code` (users redeem a code to gain access).
 - **Server:** The gateway needs to run on a machine accessible to both WeChat (internet) and your developers (network).
@@ -843,7 +845,7 @@ src/wechat_clawbot/
     credentials.py      #   Credential storage (~/.claude/channels/wechat/)
     setup.py            #   Interactive QR login
   config/               # Pydantic configuration schema
-  gateway/              # M:N routing gateway
+  gateway/              # Multi-Bot, multi-endpoint routing gateway
     channels/           #   Sub-channel implementations
       base.py           #     SubChannel protocol + callback types
       mcp_channel.py    #     MCP SSE sub-channel

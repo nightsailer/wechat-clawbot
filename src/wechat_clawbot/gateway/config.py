@@ -1,7 +1,7 @@
 """Gateway configuration parser and gateway.yaml schema (Task 1.2).
 
 Loads, validates, and scaffolds the ``~/.clawbot-gateway/gateway.yaml``
-configuration file that drives the M:N gateway.
+configuration file that drives the multi-Bot, multi-endpoint gateway.
 """
 
 from __future__ import annotations

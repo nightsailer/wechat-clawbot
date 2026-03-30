@@ -847,7 +847,7 @@ Additional tools in bridge mode:
 
 ---
 
-## `wechat_clawbot.gateway` — M:N Routing Gateway *(v0.4.0+)*
+## `wechat_clawbot.gateway` — Multi-Bot, Multi-Endpoint Routing Gateway *(v0.4.0+)*
 
 The gateway routes messages from multiple WeChat Bot accounts (downstream) to multiple upstream AI endpoints. Requires the `gateway` extra: `pip install wechat-clawbot[gateway]`.
 

@@ -2,14 +2,16 @@
 
 [English](README.md) | 中文
 
-微信 iLink Bot SDK，内置多用户网关，支持 AI 后端接入（Claude Code、Codex、自定义机器人）。
+微信 iLink Bot SDK，内置多端点网关，支持 AI 后端接入（Claude Code、Codex、自定义机器人）。
 
 移植自 [@tencent-weixin/openclaw-weixin](https://www.npmjs.com/package/@tencent-weixin/openclaw-weixin)（TypeScript 版），已同步上游 v2.1.1。
+
+> **微信 Bot 约束：** 每个微信账号只能创建一个 Bot，且该 Bot 与创建者的微信账号一对一绑定（1:1）。多人无法共享同一个 Bot。网关管理多个 Bot（每个属于不同微信用户），将消息路由到多个端点。
 
 两种运行模式：
 
 - **单通道模式（Channel Mode）** — 单用户、单端点 MCP 桥接，用于 Claude Code
-- **网关模式（Gateway Mode）** (v0.4.0+) — M:N 多用户、多端点路由网关
+- **网关模式（Gateway Mode）** (v0.4.0+) — 多 Bot、多端点路由网关
 
 > **初次使用？** 请阅读[使用指南](docs/guide.zh.md)，包含部署、团队管理、SDK 开发、Webhook 集成、运维等完整场景教程。
 
@@ -18,23 +20,23 @@
 单通道模式:                │  微信 ──> ilink API ──> [桥接] ──> Claude Code  │
                           └──────────────────────────────────────────────┘
 
-                          ┌──────────────────────────────────────────────┐
-                          │           ┌──> MCP SSE ──> Claude Code       │
-网关模式:                  │  微信 ──┤──> SDK WS  ──> 自定义机器人         │
-                          │   (M:N)   └──> HTTP    ──> Webhook 服务      │
-                          └──────────────────────────────────────────────┘
+                          ┌─────────────────────────────────────────────────────┐
+                          │               ┌──> MCP SSE ──> Claude Code        │
+网关模式:                  │  微信 Bots ──┤──> SDK WS  ──> 自定义机器人        │
+                          │  (M Bots:N)   └──> HTTP    ──> Webhook 服务       │
+                          └─────────────────────────────────────────────────────┘
 ```
 
 ## 功能特性
 
 - **完整 ilink API 客户端** — getUpdates 长轮询、sendMessage、getConfig、sendTyping，支持 `iLink-App-Id` / `iLink-App-ClientVersion` 协议头
-- **多账户支持** — 二维码扫码登录（支持 IDC 重定向）、凭证存储、过期账户自动清理
+- **多 Bot 账户支持** — 二维码扫码登录（支持 IDC 重定向）、凭证存储、过期账户自动清理（每个 Bot 与创建者的微信账号一对一绑定）
 - **媒体处理管道** — AES-128-ECB 加密 CDN 上传/下载，支持 `full_url` 直传 URL，图片/视频/文件/语音
 - **Context Token 持久化** — 进程重启不丢失会话上下文，磁盘备份 + 变更检测
 - **SILK 转码** — 语音消息转 WAV（可选依赖）
 - **消息处理** — 入站消息转换、斜杠命令、调试模式、错误通知
 - **Claude Code Channel** — MCP 服务器，将微信消息桥接到 Claude Code 会话
-- **网关模式** — M:N 路由网关，支持投递队列、会话管理、Admin API、SDK 客户端库
+- **网关模式** — 多 Bot、多端点路由网关，支持投递队列、会话管理、Admin API、SDK 客户端库
 - **安全日志** — 自动脱敏 token、authorization 等敏感字段
 - **异步优先** — 基于 httpx + anyio，使用共享连接池
 
@@ -169,11 +171,11 @@ asyncio.run(main())
 
 ## 网关模式 (v0.4.0+)
 
-网关提供 M:N 路由能力：多个微信 Bot 账户可以将消息路由到多个上游 AI 端点。每个用户可以通过聊天命令独立选择、切换和绑定端点。
+网关提供多 Bot、多端点路由能力：多个微信 Bot 账户（每个与创建者的微信账号一对一绑定）可以将消息路由到多个上游 AI 端点。每个 Bot 的拥有者可以通过聊天命令独立选择、切换和绑定端点。
 
 ### 架构概览
 
-- **账户**（下游）— 一个或多个微信 Bot 账户，各自轮询 ilink API
+- **账户**（下游）— 一个或多个微信 Bot 账户（每个与创建者的微信账号一对一绑定），各自轮询 ilink API
 - **端点**（上游）— 通过 MCP SSE、SDK WebSocket 或 HTTP Webhook 连接的 AI 后端
 - **路由器** — 根据活跃端点、`@提及` 前缀或 `/命令` 将入站消息解析到对应端点
 - **会话存储** — 每用户状态（活跃端点、绑定关系、上下文 Token）持久化到磁盘
@@ -346,7 +348,7 @@ src/wechat_clawbot/
   storage/          # 状态目录、同步缓冲区持久化
   util/             # 日志、ID 生成、脱敏
   claude_channel/   # Claude Code MCP Channel 桥接（CLI + 服务器）
-  gateway/          # M:N 路由网关 (v0.4.0+)
+  gateway/          # 多 Bot、多端点路由网关 (v0.4.0+)
     channels/       #   子通道实现（MCP、SDK、HTTP）
     admin.py        #   Admin HTTP API 服务器
     app.py          #   网关主编排器

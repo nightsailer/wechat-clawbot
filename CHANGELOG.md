@@ -4,11 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [0.4.0] - 2026-03-30
 
-Gateway v2 — multi-user, multi-endpoint message routing gateway for WeChat ClawBot.
+Gateway v2 — multi-Bot, multi-endpoint message routing gateway for WeChat ClawBot.
 
 ### Added
 
-- **Gateway mode with M:N routing** — multiple WeChat Bot accounts map to multiple upstream AI endpoints, with per-user session isolation and endpoint switching
+- **Gateway mode with multi-Bot, multi-endpoint routing** — multiple WeChat Bot accounts (each 1:1 bound to its creator's WeChat account) map to multiple upstream AI endpoints, with per-Bot-owner session isolation and endpoint switching
 - **Three sub-channel types** — MCP SSE (`/mcp/{id}/sse`), SDK WebSocket (`/sdk/{id}/ws`), and HTTP Webhook (`/http/{id}/callback`) for connecting different backend types
 - **Delivery queue with SQLite persistence** — WAL-mode SQLite-backed durable queue with retry logic and expiry; no messages lost on restart
 - **Message archive (sidecar)** — optional SQLite-backed archive recording every inbound/outbound message with retention policy support
