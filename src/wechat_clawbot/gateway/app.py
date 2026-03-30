@@ -15,8 +15,11 @@ from wechat_clawbot.messaging.inbound import get_context_token
 from wechat_clawbot.messaging.send import send_message_weixin
 
 from .admin import AdminAPI
+from .archive import MessageArchive
 from .auth import AuthZModule
+from .channels.http_channel import HTTPChannel
 from .channels.mcp_channel import MCPChannel
+from .channels.sdk_channel import SDKChannel
 from .commands import GatewayCommandContext, handle_command
 from .config import GatewayConfig, resolve_gateway_state_dir
 from .delivery import DeliveryQueue
@@ -26,6 +29,7 @@ from .poller import PollerManager
 from .router import Router
 from .session import SessionStore
 from .types import (
+    ChannelType,
     DeliveryRecord,
     DeliveryStatus,
     EndpointConfig,
@@ -44,6 +48,9 @@ class GatewayApp:
         self._state_dir = resolve_gateway_state_dir()
         self._delivery: DeliveryQueue | None = None
         self._mcp_channel: MCPChannel | None = None
+        self._sdk_channel: SDKChannel | None = None
+        self._http_channel: HTTPChannel | None = None
+        self._archive: MessageArchive | None = None
         self._poller_manager: PollerManager | None = None
         self._stop_event: anyio.Event | None = None
         self._session_store: SessionStore | None = None
@@ -101,6 +108,32 @@ class GatewayApp:
             on_disconnect=self._on_endpoint_disconnected,
         )
 
+        # Init SDK channel
+        self._sdk_channel = SDKChannel(
+            on_reply=self._handle_reply,
+            on_connect=lambda eid: self._on_endpoint_connected(eid),
+            on_disconnect=lambda eid: self._on_endpoint_disconnected(eid),
+        )
+
+        # Init HTTP channel and register HTTP-type endpoints
+        self._http_channel = HTTPChannel(on_reply=self._handle_reply)
+        for ep_id, ep_cfg in self._config.endpoints.items():
+            if ep_cfg.type == ChannelType.HTTP:
+                self._http_channel.register_endpoint(ep_id, ep_cfg.url, ep_cfg.api_key)
+                # HTTP endpoints are "connected" as long as they have a URL
+                if ep_cfg.url:
+                    self._endpoint_manager.set_connected(ep_id, connected=True)
+        await self._http_channel.start()
+
+        # Init message archive if enabled
+        if self._config.archive.enabled:
+            archive_path = self._config.archive.path
+            if not archive_path:
+                archive_path = str(self._state_dir / "archive.db")
+            self._archive = MessageArchive(Path(archive_path).expanduser())
+            await self._archive.open()
+            logger.info("Message archive enabled: %s", archive_path)
+
         # Init PollerManager and register all configured accounts
         self._poller_manager = PollerManager(self._state_dir)
         for account_id, account_cfg in self._config.accounts.items():
@@ -152,6 +185,12 @@ class GatewayApp:
             self._stop_event.set()
         if self._mcp_channel:
             await self._mcp_channel.stop()
+        if self._sdk_channel:
+            await self._sdk_channel.stop()
+        if self._http_channel:
+            await self._http_channel.stop()
+        if self._archive:
+            await self._archive.close()
         if self._delivery:
             await self._delivery.close()
         logger.info("Gateway stopped")
@@ -253,6 +292,15 @@ class GatewayApp:
         if msg.context_token:
             self._session_store.set_context_token(account_id, sender_id, msg.context_token)
 
+        # 2b. Archive inbound message
+        if self._archive:
+            await self._archive.record_inbound(
+                account_id=account_id,
+                sender_id=sender_id,
+                endpoint_id="",  # not yet routed
+                content=msg.text,
+            )
+
         # 3. Route the message
         route = self._router.resolve(sender_id, msg.text)
 
@@ -345,21 +393,37 @@ class GatewayApp:
         assert self._delivery is not None
         await self._delivery.enqueue(record)
 
-        # Try to deliver
+        # Try to deliver via the appropriate sub-channel
+        delivered = False
         if self._mcp_channel and self._mcp_channel.is_endpoint_connected(endpoint_id):
-            success = await self._mcp_channel.deliver_message(
+            delivered = await self._mcp_channel.deliver_message(
                 endpoint_id=endpoint_id,
                 sender_id=sender_id,
                 text=text,
                 context_token=msg.context_token,
             )
-            if success:
-                assert self._delivery is not None
-                await self._delivery.mark_delivered(record.message_id)
-            else:
-                logger.warning("Failed to deliver to %s, will retry", endpoint_id)
+        elif self._sdk_channel and self._sdk_channel.is_endpoint_connected(endpoint_id):
+            delivered = await self._sdk_channel.deliver_message(
+                endpoint_id=endpoint_id,
+                sender_id=sender_id,
+                text=text,
+                context_token=msg.context_token,
+            )
+        elif self._http_channel and self._http_channel.is_endpoint_connected(endpoint_id):
+            delivered = await self._http_channel.deliver_message(
+                endpoint_id=endpoint_id,
+                sender_id=sender_id,
+                text=text,
+                context_token=msg.context_token,
+            )
+
+        if delivered:
+            assert self._delivery is not None
+            await self._delivery.mark_delivered(record.message_id)
         else:
-            logger.warning("Endpoint %s not connected, message queued", endpoint_id)
+            logger.warning(
+                "Endpoint %s not connected or delivery failed, message queued", endpoint_id
+            )
 
     def _resolve_account_api_options(self, account_id: str, sender_id: str) -> WeixinApiOptions:
         """Build WeixinApiOptions for the given account and sender."""
@@ -417,6 +481,15 @@ class GatewayApp:
 
         await send_message_weixin(sender_id, reply_text, opts)
         logger.info("Reply sent to %s via account %s", sender_id, account_id)
+
+        # Archive outbound message
+        if self._archive:
+            await self._archive.record_outbound(
+                account_id=account_id,
+                sender_id=sender_id,
+                endpoint_id=endpoint_id,
+                content=reply_text,
+            )
 
     async def _handle_send_file(
         self, endpoint_id: str, sender_id: str, file_path: str, text: str

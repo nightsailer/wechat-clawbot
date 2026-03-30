@@ -164,6 +164,14 @@ def main() -> None:
     invite_create_p.add_argument("--max-uses", type=int, default=1, help="Max uses (0=unlimited)")
     invite_create_p.add_argument("--ttl", type=float, default=0, help="TTL in hours (0=no expiry)")
 
+    # ---- logs subcommand -------------------------------------------------------
+    logs_parser = sub.add_parser("logs", help="View gateway message archive logs")
+    logs_parser.add_argument("--endpoint", help="Filter by endpoint ID")
+    logs_parser.add_argument("--user", help="Filter by sender/user ID")
+    logs_parser.add_argument(
+        "-n", "--lines", type=int, default=50, help="Number of log lines to show"
+    )
+
     args = parser.parse_args()
 
     if args.command == "init":
@@ -182,6 +190,8 @@ def main() -> None:
         _dispatch_endpoint(args, ep_parser)
     elif args.command == "invite":
         _dispatch_invite(args, invite_parser)
+    elif args.command == "logs":
+        _cmd_logs(args)
     else:
         parser.print_help()
 
@@ -647,3 +657,69 @@ def _cmd_invite_create(args: argparse.Namespace) -> None:
         _output(args, data)
         return
     _output(args, "Invite create requires a running gateway. Use --gateway <url>.")
+
+
+# ---------------------------------------------------------------------------
+# Logs command
+# ---------------------------------------------------------------------------
+
+
+def _cmd_logs(args: argparse.Namespace) -> None:
+    """View gateway message archive logs."""
+    gw_url = _get_gateway_url(args)
+    if gw_url:
+        token = _get_admin_token(args)
+        params = f"?limit={args.lines}"
+        if getattr(args, "endpoint", None):
+            params += f"&endpoint_id={args.endpoint}"
+        if getattr(args, "user", None):
+            params += f"&sender_id={args.user}"
+        data = _remote_request("GET", gw_url, f"/api/logs{params}", token=token)
+        _output(args, data)
+        return
+
+    # Local mode: read directly from archive database
+    asyncio.run(_cmd_logs_local(args))
+
+
+async def _cmd_logs_local(args: argparse.Namespace) -> None:
+    """Read logs from the local archive database."""
+    from .archive import MessageArchive
+
+    state_dir = resolve_gateway_state_dir()
+
+    # Try to load config for archive path
+    archive_path = state_dir / "archive.db"
+    try:
+        config = load_gateway_config(args.config)
+        if config.archive.path:
+            archive_path = Path(config.archive.path).expanduser()
+    except Exception:
+        pass
+
+    if not archive_path.exists():
+        _output(args, "No archive database found. Enable archive in gateway.yaml.")
+        return
+
+    archive = MessageArchive(archive_path)
+    await archive.open()
+    try:
+        messages = await archive.query(
+            sender_id=getattr(args, "user", None),
+            endpoint_id=getattr(args, "endpoint", None),
+            limit=args.lines,
+        )
+        if args.json_output:
+            _output(args, {"messages": messages, "count": len(messages)})
+        elif not messages:
+            print("No messages found.")
+        else:
+            import datetime
+
+            for msg in reversed(messages):
+                ts = datetime.datetime.fromtimestamp(msg["timestamp"]).strftime("%Y-%m-%d %H:%M:%S")
+                direction = ">>>" if msg["direction"] == "inbound" else "<<<"
+                ep = msg.get("endpoint_id") or "?"
+                print(f"[{ts}] {direction} {msg['sender_id']} ({ep}): {msg['content']}")
+    finally:
+        await archive.close()
