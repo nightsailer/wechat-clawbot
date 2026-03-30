@@ -65,9 +65,15 @@ class HTTPChannel:
 
     # ---- SubChannel interface -----------------------------------------------
 
-    async def start(self) -> None:
-        """Create the shared HTTP client."""
-        self._client = httpx.AsyncClient(timeout=30.0)
+    async def start(self, client: httpx.AsyncClient | None = None) -> None:
+        """Create the shared HTTP client.
+
+        Parameters
+        ----------
+        client:
+            Optional pre-configured client (useful for testing).
+        """
+        self._client = client or httpx.AsyncClient(timeout=30.0)
 
     async def stop(self) -> None:
         """Close the shared HTTP client."""
