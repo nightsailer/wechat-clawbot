@@ -1,13 +1,24 @@
 # wechat-clawbot
 
-微信 ClawBot ilink API 的 Python SDK，内置 Claude Code Channel 桥接器。
+微信 iLink Bot SDK，内置多用户网关，支持 AI 后端接入（Claude Code、Codex、自定义机器人）。
 
 移植自 [@tencent-weixin/openclaw-weixin](https://www.npmjs.com/package/@tencent-weixin/openclaw-weixin)（TypeScript 版），已同步上游 v2.1.1。
 
+两种运行模式：
+
+- **单通道模式（Channel Mode）** — 单用户、单端点 MCP 桥接，用于 Claude Code
+- **网关模式（Gateway Mode）** (v0.4.0+) — M:N 多用户、多端点路由网关
+
 ```
-微信 (iOS) --> ClawBot --> ilink API --> [wechat-clawbot] --> Claude Code 会话
-                                                |
-Claude Code  <-- MCP Channel 协议  <--  wechat_reply / wechat_send_file / wechat_typing
+                          ┌──────────────────────────────────────────────┐
+单通道模式:                │  微信 ──> ilink API ──> [桥接] ──> Claude Code  │
+                          └──────────────────────────────────────────────┘
+
+                          ┌──────────────────────────────────────────────┐
+                          │           ┌──> MCP SSE ──> Claude Code       │
+网关模式:                  │  微信 ──┤──> SDK WS  ──> 自定义机器人         │
+                          │   (M:N)   └──> HTTP    ──> Webhook 服务      │
+                          └──────────────────────────────────────────────┘
 ```
 
 ## 功能特性
@@ -19,6 +30,7 @@ Claude Code  <-- MCP Channel 协议  <--  wechat_reply / wechat_send_file / wech
 - **SILK 转码** — 语音消息转 WAV（可选依赖）
 - **消息处理** — 入站消息转换、斜杠命令、调试模式、错误通知
 - **Claude Code Channel** — MCP 服务器，将微信消息桥接到 Claude Code 会话
+- **网关模式** — M:N 路由网关，支持投递队列、会话管理、Admin API、SDK 客户端库
 - **安全日志** — 自动脱敏 token、authorization 等敏感字段
 - **异步优先** — 基于 httpx + anyio，使用共享连接池
 
@@ -46,7 +58,9 @@ uv add "wechat-clawbot[silk]"    # SILK 语音转码
 uv add "wechat-clawbot[socks]"   # SOCKS 代理支持（如使用 SOCKS5 代理）
 ```
 
-## 快速开始 — Claude Code Channel
+## 单通道模式（Channel Mode）
+
+### 快速开始 — Claude Code Channel
 
 ### 1. 微信扫码登录
 
@@ -101,6 +115,150 @@ async def main():
 asyncio.run(main())
 ```
 
+## 网关模式 (v0.4.0+)
+
+网关提供 M:N 路由能力：多个微信 Bot 账户可以将消息路由到多个上游 AI 端点。每个用户可以通过聊天命令独立选择、切换和绑定端点。
+
+### 架构概览
+
+- **账户**（下游）— 一个或多个微信 Bot 账户，各自轮询 ilink API
+- **端点**（上游）— 通过 MCP SSE、SDK WebSocket 或 HTTP Webhook 连接的 AI 后端
+- **路由器** — 根据活跃端点、`@提及` 前缀或 `/命令` 将入站消息解析到对应端点
+- **会话存储** — 每用户状态（活跃端点、绑定关系、上下文 Token）持久化到磁盘
+- **投递队列** — 基于 SQLite 的持久化队列，支持重试逻辑
+- **Admin API** — 独立的 HTTP 管理服务器，支持 Bearer Token 认证
+
+### 快速开始
+
+```bash
+# 1. 初始化配置
+clawbot-gateway init
+
+# 2. 添加微信 Bot 账户（扫码登录）
+clawbot-gateway account add
+
+# 3. 编辑 ~/.clawbot-gateway/gateway.yaml 配置端点
+
+# 4. 启动网关
+clawbot-gateway start
+```
+
+### 配置示例
+
+```yaml
+# ~/.clawbot-gateway/gateway.yaml
+gateway:
+  host: 0.0.0.0
+  port: 8765
+  admin_port: 8766
+  admin_token: "your-secret-token"
+
+accounts:
+  main-bot:
+    credentials: ~/.clawbot-gateway/accounts/main-bot.json
+
+endpoints:
+  claude:
+    name: "Claude Code"
+    type: mcp
+    url: "http://localhost:8080/sse"
+  my-bot:
+    name: "我的机器人"
+    type: sdk
+
+routing:
+  strategy: active-endpoint
+  mention_prefix: "@"
+
+authorization:
+  mode: allowlist
+  admins: ["admin-user-id@im.wechat"]
+```
+
+### 微信命令
+
+用户通过聊天命令与网关交互：
+
+| 命令 | 说明 |
+|------|------|
+| `/list` | 列出可用端点 |
+| `/use <名称>` | 切换活跃端点 |
+| `/to <名称> <消息>` | 向指定端点发送单次消息 |
+| `/status` | 显示当前会话状态 |
+| `/bind` | 绑定到端点 |
+| `/unbind` | 解绑端点 |
+| `/help` | 显示帮助信息 |
+
+### 子通道类型
+
+| 类型 | 传输方式 | 适用场景 |
+|------|----------|----------|
+| `mcp` | SSE + JSON-RPC | Claude Code / MCP 兼容客户端 |
+| `sdk` | WebSocket | 使用 `ClawBotClient` SDK 的自定义机器人 |
+| `http` | Webhook POST | 第三方服务、n8n、Zapier |
+
+### SDK 客户端示例
+
+```python
+import asyncio
+from wechat_clawbot.sdk import ClawBotClient
+
+async def main():
+    async with ClawBotClient(
+        gateway_url="http://localhost:8765",
+        endpoint_id="my-bot",
+    ) as client:
+        async for msg in client.messages():
+            print(f"来自 {msg.sender_id}: {msg.text}")
+            await client.reply(msg.sender_id, f"回声: {msg.text}")
+
+asyncio.run(main())
+```
+
+### Admin API
+
+Admin API 运行在 `admin_port`（默认 8766），设置 `admin_token` 时启用 Bearer Token 认证。
+
+| 方法 | 端点 | 说明 |
+|------|------|------|
+| GET | `/api/status` | 网关状态概览 |
+| GET | `/api/accounts` | 列出 Bot 账户 |
+| GET | `/api/endpoints` | 列出端点及状态 |
+| POST | `/api/endpoints` | 添加端点 |
+| DELETE | `/api/endpoints/{id}` | 删除端点 |
+| GET | `/api/users` | 列出用户 |
+| POST | `/api/users/{id}/bind` | 绑定用户到端点 |
+| POST | `/api/users/{id}/unbind` | 解绑用户与端点 |
+| GET | `/api/invites` | 列出邀请码 |
+| POST | `/api/invites` | 创建邀请码 |
+
+### CLI 参考
+
+| 命令 | 说明 |
+|------|------|
+| `clawbot-gateway init` | 初始化配置 |
+| `clawbot-gateway start` | 启动网关 |
+| `clawbot-gateway stop` | 停止网关 |
+| `clawbot-gateway status` | 查看网关状态 |
+| `clawbot-gateway account add` | 扫码添加 Bot 账户 |
+| `clawbot-gateway account list` | 列出已配置账户 |
+| `clawbot-gateway account remove <id>` | 删除账户 |
+| `clawbot-gateway account status [id]` | 查看账户状态 |
+| `clawbot-gateway endpoint list` | 列出端点 |
+| `clawbot-gateway endpoint add <id>` | 添加端点 |
+| `clawbot-gateway endpoint remove <id>` | 删除端点 |
+| `clawbot-gateway user list` | 列出所有用户 |
+| `clawbot-gateway user info <id>` | 查看用户信息 |
+| `clawbot-gateway user allow <id>` | 允许用户访问 |
+| `clawbot-gateway user block <id>` | 屏蔽用户 |
+| `clawbot-gateway user bind <uid> <eid>` | 绑定用户到端点 |
+| `clawbot-gateway user unbind <uid> <eid>` | 解绑用户与端点 |
+| `clawbot-gateway invite list` | 列出活跃邀请码 |
+| `clawbot-gateway invite create <eid>` | 创建邀请码 |
+| `clawbot-gateway logs` | 查看消息归档日志 |
+
+所有命令支持 `--json` 输出机器可读格式，`--gateway <url>` 连接远程网关管理。
+
 ## 项目结构
 
 ```
@@ -115,6 +273,16 @@ src/wechat_clawbot/
   storage/          # 状态目录、同步缓冲区持久化
   util/             # 日志、ID 生成、脱敏
   claude_channel/   # Claude Code MCP Channel 桥接（CLI + 服务器）
+  gateway/          # M:N 路由网关 (v0.4.0+)
+    channels/       #   子通道实现（MCP、SDK、HTTP）
+    admin.py        #   Admin HTTP API 服务器
+    app.py          #   网关主编排器
+    cli.py          #   CLI 入口（clawbot-gateway）
+    config.py       #   gateway.yaml 配置 Schema 和加载器
+    delivery.py     #   SQLite 投递队列
+    router.py       #   消息路由引擎
+    session.py      #   用户会话/状态持久化
+  sdk/              # ClawBotClient 客户端库（自定义机器人）
 ```
 
 ## 开发
