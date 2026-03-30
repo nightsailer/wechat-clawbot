@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+from enum import Enum
 from typing import TYPE_CHECKING
 
 from .types import UserRole
@@ -11,6 +12,14 @@ if TYPE_CHECKING:
     from .config import AuthorizationConfig
 
 logger = logging.getLogger(__name__)
+
+
+class AuthMode(str, Enum):
+    """Authorization mode for gateway access."""
+
+    OPEN = "open"
+    ALLOWLIST = "allowlist"
+    INVITE_CODE = "invite-code"
 
 
 class AuthZModule:
@@ -30,9 +39,9 @@ class AuthZModule:
 
     def is_allowed(self, sender_id: str) -> bool:
         """Check if sender is allowed to interact with gateway."""
-        if self._config.mode == "open":
+        if self._config.mode == AuthMode.OPEN:
             return True
-        if self._config.mode == "allowlist":
+        if self._config.mode == AuthMode.ALLOWLIST:
             return sender_id in self._admin_set
         # invite-code mode: user must have been registered previously
         return False

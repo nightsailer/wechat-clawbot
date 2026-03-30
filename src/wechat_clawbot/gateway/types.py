@@ -79,7 +79,6 @@ class EndpointBinding:
     endpoint_id: str
     bound_at: float = field(default_factory=time.time)
     permissions: list[str] = field(default_factory=lambda: ["read", "write"])
-    last_message_at: float = 0.0
 
 
 @dataclass

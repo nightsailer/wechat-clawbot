@@ -8,15 +8,14 @@ upstream endpoints.  All I/O is offloaded to a worker thread via
 from __future__ import annotations
 
 import functools
-import sqlite3
 import time
-from typing import TYPE_CHECKING, Any
-
-import anyio
+from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    import sqlite3
     from pathlib import Path
 
+from .db import AsyncSQLiteStore
 from .types import DeliveryRecord, DeliveryStatus
 
 # ---------------------------------------------------------------------------
@@ -56,26 +55,26 @@ VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 
 _MARK_DELIVERED = """\
 UPDATE delivery_queue
-   SET status = 'delivered', delivered_at = ?
+   SET status = ?, delivered_at = ?
  WHERE message_id = ?
 """
 
 _MARK_EXPIRED = """\
 UPDATE delivery_queue
-   SET status = 'expired'
+   SET status = ?
  WHERE message_id = ?
 """
 
 _PENDING_FOR_ENDPOINT = """\
 SELECT * FROM delivery_queue
- WHERE endpoint_id = ? AND status = 'pending'
+ WHERE endpoint_id = ? AND status = ?
  ORDER BY created_at ASC
  LIMIT 100
 """
 
 _EXPIRED_FOR_NOTIFICATION = """\
 SELECT * FROM delivery_queue
- WHERE status = 'pending' AND created_at <= ?
+ WHERE status = ? AND created_at <= ?
  ORDER BY created_at ASC
 """
 
@@ -87,24 +86,24 @@ UPDATE delivery_queue
 
 _RETRYABLE = """\
 SELECT * FROM delivery_queue
- WHERE status = 'pending' AND next_retry_at IS NOT NULL AND next_retry_at <= ?
+ WHERE status = ? AND next_retry_at IS NOT NULL AND next_retry_at <= ?
  ORDER BY next_retry_at ASC
  LIMIT 100
 """
 
 _CLEANUP_DELIVERED = """\
 DELETE FROM delivery_queue
- WHERE status = 'delivered' AND delivered_at <= ?
+ WHERE status = ? AND delivered_at <= ?
 """
 
 _CLEANUP_EXPIRED = """\
 DELETE FROM delivery_queue
- WHERE status = 'expired'
+ WHERE status = ?
 """
 
 
 # ---------------------------------------------------------------------------
-# Row → dataclass helper
+# Row -> dataclass helper
 # ---------------------------------------------------------------------------
 
 
@@ -131,7 +130,7 @@ def _row_to_record(row: sqlite3.Row) -> DeliveryRecord:
 # ---------------------------------------------------------------------------
 
 
-class DeliveryQueue:
+class DeliveryQueue(AsyncSQLiteStore):
     """Async SQLite delivery queue with WAL mode and single-writer pattern.
 
     Parameters
@@ -142,43 +141,10 @@ class DeliveryQueue:
     """
 
     def __init__(self, db_path: Path) -> None:
-        self._db_path = db_path
-        self._conn: sqlite3.Connection | None = None
-        self._limiter = anyio.CapacityLimiter(1)
+        super().__init__(db_path)
 
-    # -- lifecycle -----------------------------------------------------------
-
-    async def open(self) -> None:
-        """Create the database connection and ensure the schema exists."""
-        await anyio.to_thread.run_sync(self._open_sync)
-
-    def _open_sync(self) -> None:
-        self._db_path.parent.mkdir(parents=True, exist_ok=True)
-        conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
-        conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
-        conn.execute("PRAGMA busy_timeout=5000")
-        conn.executescript(_CREATE_TABLE + _CREATE_INDEXES)
-        self._conn = conn
-
-    async def close(self) -> None:
-        """Close the underlying database connection."""
-        if self._conn is not None:
-            await anyio.to_thread.run_sync(self._conn.close)
-            self._conn = None
-
-    # -- helpers -------------------------------------------------------------
-
-    @property
-    def _db(self) -> sqlite3.Connection:
-        if self._conn is None:
-            msg = "DeliveryQueue is not open — call open() first"
-            raise RuntimeError(msg)
-        return self._conn
-
-    async def _run(self, fn: functools.partial[Any]) -> Any:
-        """Run *fn* in a worker thread, serialized via capacity limiter."""
-        return await anyio.to_thread.run_sync(fn, limiter=self._limiter)
+    def _get_schema_sql(self) -> str:
+        return _CREATE_TABLE + _CREATE_INDEXES
 
     # -- public API ----------------------------------------------------------
 
@@ -217,7 +183,7 @@ class DeliveryQueue:
         await self._run(functools.partial(self._mark_delivered_sync, message_id))
 
     def _mark_delivered_sync(self, message_id: str) -> None:
-        self._db.execute(_MARK_DELIVERED, (time.time(), message_id))
+        self._db.execute(_MARK_DELIVERED, (DeliveryStatus.DELIVERED.value, time.time(), message_id))
         self._db.commit()
 
     async def mark_expired(self, message_id: str) -> None:
@@ -225,7 +191,7 @@ class DeliveryQueue:
         await self._run(functools.partial(self._mark_expired_sync, message_id))
 
     def _mark_expired_sync(self, message_id: str) -> None:
-        self._db.execute(_MARK_EXPIRED, (message_id,))
+        self._db.execute(_MARK_EXPIRED, (DeliveryStatus.EXPIRED.value, message_id))
         self._db.commit()
 
     async def get_pending_for_endpoint(self, endpoint_id: str) -> list[DeliveryRecord]:
@@ -234,7 +200,9 @@ class DeliveryQueue:
         return [_row_to_record(r) for r in rows]  # type: ignore[union-attr]
 
     def _get_pending_for_endpoint_sync(self, endpoint_id: str) -> list[sqlite3.Row]:
-        return self._db.execute(_PENDING_FOR_ENDPOINT, (endpoint_id,)).fetchall()
+        return self._db.execute(
+            _PENDING_FOR_ENDPOINT, (endpoint_id, DeliveryStatus.PENDING.value)
+        ).fetchall()
 
     async def get_expired_for_notification(
         self, ttl_seconds: float = 86400.0
@@ -245,7 +213,9 @@ class DeliveryQueue:
         return [_row_to_record(r) for r in rows]  # type: ignore[union-attr]
 
     def _get_expired_for_notification_sync(self, cutoff: float) -> list[sqlite3.Row]:
-        return self._db.execute(_EXPIRED_FOR_NOTIFICATION, (cutoff,)).fetchall()
+        return self._db.execute(
+            _EXPIRED_FOR_NOTIFICATION, (DeliveryStatus.PENDING.value, cutoff)
+        ).fetchall()
 
     async def retry_pending(self, message_id: str, retry_delay: float = 30.0) -> None:
         """Increment retry count and schedule the next retry attempt."""
@@ -263,7 +233,7 @@ class DeliveryQueue:
         return [_row_to_record(r) for r in rows]  # type: ignore[union-attr]
 
     def _get_retryable_sync(self, now: float) -> list[sqlite3.Row]:
-        return self._db.execute(_RETRYABLE, (now,)).fetchall()
+        return self._db.execute(_RETRYABLE, (DeliveryStatus.PENDING.value, now)).fetchall()
 
     async def cleanup_delivered(self, retention_days: int = 7) -> int:
         """Delete delivered messages older than *retention_days*.
@@ -275,7 +245,7 @@ class DeliveryQueue:
         return int(count)  # type: ignore[arg-type]
 
     def _cleanup_delivered_sync(self, cutoff: float) -> int:
-        cur = self._db.execute(_CLEANUP_DELIVERED, (cutoff,))
+        cur = self._db.execute(_CLEANUP_DELIVERED, (DeliveryStatus.DELIVERED.value, cutoff))
         self._db.commit()
         return cur.rowcount
 
@@ -288,6 +258,6 @@ class DeliveryQueue:
         return int(count)  # type: ignore[arg-type]
 
     def _cleanup_expired_sync(self) -> int:
-        cur = self._db.execute(_CLEANUP_EXPIRED)
+        cur = self._db.execute(_CLEANUP_EXPIRED, (DeliveryStatus.EXPIRED.value,))
         self._db.commit()
         return cur.rowcount

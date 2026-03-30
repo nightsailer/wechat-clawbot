@@ -11,6 +11,8 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from .types import EndpointStatus
+
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
@@ -64,16 +66,19 @@ async def _handle_list(ctx: GatewayCommandContext) -> str:
     for eid in bound_ids:
         info = ctx.endpoint_manager.get_endpoint(eid)
         if info is None:
-            status_str = "unknown"
+            status = None
             name = eid
         else:
-            status_str = info.status.value
+            status = info.status
             name = info.config.name or eid
 
         active_marker = " (active)" if eid == user.active_endpoint else ""
-        status_icon = "[online]" if status_str == "online" else "[offline]"
-        if status_str == "error":
+        if status == EndpointStatus.ONLINE:
+            status_icon = "[online]"
+        elif status == EndpointStatus.ERROR:
             status_icon = "[error]"
+        else:
+            status_icon = "[offline]"
         lines.append(f"  {name} {status_icon}{active_marker}")
 
     return "\n".join(lines)

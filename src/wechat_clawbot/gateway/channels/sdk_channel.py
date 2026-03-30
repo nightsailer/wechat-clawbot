@@ -5,16 +5,21 @@ from __future__ import annotations
 import contextlib
 import json
 import logging
-from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
 from starlette.routing import WebSocketRoute
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+if TYPE_CHECKING:
+    from .base import ConnectCallback, DisconnectCallback, ReplyCallback
+
 logger = logging.getLogger(__name__)
 
-ReplyCallback = Callable[[str, str, str], Awaitable[None]]  # endpoint_id, sender_id, text
-ConnectCallback = Callable[[str], Awaitable[None]]  # endpoint_id
-DisconnectCallback = Callable[[str], Awaitable[None]]  # endpoint_id
+# Shared message type constants (also used by sdk/client.py)
+MSG_TYPE_MESSAGE = "message"
+MSG_TYPE_REPLY = "reply"
+MSG_TYPE_PING = "ping"
+MSG_TYPE_PONG = "pong"
 
 
 class SDKChannel:
@@ -51,7 +56,7 @@ class SDKChannel:
         logger.info("SDK client connected: %s", endpoint_id)
 
         if self._on_connect:
-            await self._on_connect(endpoint_id)
+            self._on_connect(endpoint_id)
 
         try:
             while True:
@@ -59,12 +64,12 @@ class SDKChannel:
                 msg = json.loads(raw)
                 msg_type = msg.get("type", "")
 
-                if msg_type == "reply":
+                if msg_type == MSG_TYPE_REPLY:
                     sender_id = msg.get("sender_id", "")
                     text = msg.get("text", "")
                     await self._on_reply(endpoint_id, sender_id, text)
-                elif msg_type == "ping":
-                    await ws.send_text(json.dumps({"type": "pong"}))
+                elif msg_type == MSG_TYPE_PING:
+                    await ws.send_text(json.dumps({"type": MSG_TYPE_PONG}))
         except WebSocketDisconnect:
             pass
         except Exception:
@@ -72,7 +77,7 @@ class SDKChannel:
         finally:
             self._connections.pop(endpoint_id, None)
             if self._on_disconnect:
-                await self._on_disconnect(endpoint_id)
+                self._on_disconnect(endpoint_id)
             logger.info("SDK client disconnected: %s", endpoint_id)
 
     # ---- SubChannel interface -----------------------------------------------
@@ -107,7 +112,7 @@ class SDKChannel:
             await ws.send_text(
                 json.dumps(
                     {
-                        "type": "message",
+                        "type": MSG_TYPE_MESSAGE,
                         "sender_id": sender_id,
                         "text": text,
                         "context_token": context_token,

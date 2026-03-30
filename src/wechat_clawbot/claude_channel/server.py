@@ -22,7 +22,7 @@ from mcp import types as mcp_types
 from mcp.server import Server
 from mcp.server.stdio import stdio_server
 from mcp.shared.message import SessionMessage
-from mcp.types import JSONRPCMessage, JSONRPCNotification
+from mcp.types import JSONRPCMessage
 
 from wechat_clawbot._version import __version__
 from wechat_clawbot.api.client import (
@@ -50,6 +50,7 @@ from wechat_clawbot.messaging.inbound import (
     restore_context_tokens,
     set_context_token,
 )
+from wechat_clawbot.messaging.mcp_defs import INSTRUCTIONS, TOOLS, build_channel_notification
 from wechat_clawbot.messaging.send_media import send_weixin_media_file
 from wechat_clawbot.util.random import generate_id
 
@@ -207,21 +208,6 @@ async def _send_text_reply(
     return client_id
 
 
-INSTRUCTIONS = "\n".join(
-    [
-        'Messages from WeChat users arrive as <channel source="wechat" sender="..." sender_id="...">',
-        "Reply using the wechat_reply tool. You MUST pass the sender_id from the inbound tag.",
-        "To send a file (image, video, or document), use the wechat_send_file tool.",
-        "IMPORTANT: When you start processing a WeChat message, call wechat_typing FIRST "
-        "so the user sees a typing indicator. It auto-cancels when you send a reply.",
-        "Messages are from real WeChat users via the WeChat ClawBot interface.",
-        "Respond naturally in Chinese unless the user writes in another language.",
-        "Keep replies concise — WeChat is a chat app, not an essay platform.",
-        "Strip markdown formatting (WeChat doesn't render it). Use plain text.",
-    ]
-)
-
-
 def create_mcp_server() -> Server:
     """Create and configure the MCP server with channel capabilities."""
     server = Server(
@@ -232,79 +218,7 @@ def create_mcp_server() -> Server:
 
     @server.list_tools()
     async def list_tools() -> list[mcp_types.Tool]:
-        return [
-            mcp_types.Tool(
-                name="wechat_reply",
-                description="Send a text reply back to the WeChat user",
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "sender_id": {
-                            "type": "string",
-                            "description": (
-                                "The sender_id from the inbound <channel> tag "
-                                "(xxx@im.wechat format)"
-                            ),
-                        },
-                        "text": {
-                            "type": "string",
-                            "description": "The plain-text message to send (no markdown)",
-                        },
-                    },
-                    "required": ["sender_id", "text"],
-                },
-            ),
-            mcp_types.Tool(
-                name="wechat_send_file",
-                description=(
-                    "Send a file (image, video, or document) to the WeChat user. "
-                    "The file type is auto-detected from the file extension."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "sender_id": {
-                            "type": "string",
-                            "description": (
-                                "The sender_id from the inbound <channel> tag "
-                                "(xxx@im.wechat format)"
-                            ),
-                        },
-                        "file_path": {
-                            "type": "string",
-                            "description": "Absolute path to the local file to send",
-                        },
-                        "text": {
-                            "type": "string",
-                            "description": "Optional caption text to accompany the file",
-                            "default": "",
-                        },
-                    },
-                    "required": ["sender_id", "file_path"],
-                },
-            ),
-            mcp_types.Tool(
-                name="wechat_typing",
-                description=(
-                    "Show a typing indicator to the WeChat user. "
-                    "Call this when you START processing a WeChat message. "
-                    "Automatically cancelled when you call wechat_reply or wechat_send_file."
-                ),
-                inputSchema={
-                    "type": "object",
-                    "properties": {
-                        "sender_id": {
-                            "type": "string",
-                            "description": (
-                                "The sender_id from the inbound <channel> tag "
-                                "(xxx@im.wechat format)"
-                            ),
-                        },
-                    },
-                    "required": ["sender_id"],
-                },
-            ),
-        ]
+        return TOOLS
 
     return server
 
@@ -398,20 +312,8 @@ async def _poll_loop(
 
                 _log(f"收到消息: from={sender_id} text={text[:50]}...")
 
-                # Use raw write_stream because ServerSession.send_notification
-                # requires an active request context that we don't have here.
                 try:
-                    notification = JSONRPCNotification(
-                        jsonrpc="2.0",
-                        method="notifications/claude/channel",
-                        params={
-                            "content": text,
-                            "meta": {
-                                "sender": sender_id.split("@")[0] or sender_id,
-                                "sender_id": sender_id,
-                            },
-                        },
-                    )
+                    notification = build_channel_notification(sender_id, text)
                     await write_stream.send(SessionMessage(message=JSONRPCMessage(notification)))
                 except Exception as e:
                     _log_error(f"发送 channel 通知失败: {e}")

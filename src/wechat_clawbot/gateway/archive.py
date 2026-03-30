@@ -9,16 +9,19 @@ from __future__ import annotations
 
 import json
 import logging
-import sqlite3
 import time
 from typing import TYPE_CHECKING, Any
 
-import anyio
-
 if TYPE_CHECKING:
+    import sqlite3
     from pathlib import Path
 
+from .db import AsyncSQLiteStore
+
 logger = logging.getLogger(__name__)
+
+_DIR_INBOUND = "inbound"
+_DIR_OUTBOUND = "outbound"
 
 _CREATE_TABLE = """\
 CREATE TABLE IF NOT EXISTS messages (
@@ -51,7 +54,7 @@ def _row_to_dict(row: sqlite3.Row) -> dict[str, Any]:
     }
 
 
-class MessageArchive:
+class MessageArchive(AsyncSQLiteStore):
     """Async message archive backed by SQLite.
 
     Parameters
@@ -62,64 +65,23 @@ class MessageArchive:
     """
 
     def __init__(self, db_path: Path) -> None:
-        self._db_path = db_path
-        self._conn: sqlite3.Connection | None = None
-        self._limiter = anyio.CapacityLimiter(1)
+        super().__init__(db_path)
 
-    async def open(self) -> None:
-        """Create the database connection and ensure the schema exists."""
-
-        def _open() -> sqlite3.Connection:
-            self._db_path.parent.mkdir(parents=True, exist_ok=True)
-            conn = sqlite3.connect(str(self._db_path), check_same_thread=False)
-            conn.row_factory = sqlite3.Row
-            conn.execute("PRAGMA journal_mode=WAL")
-            conn.execute("PRAGMA busy_timeout=5000")
-            conn.executescript(_CREATE_TABLE)
-            return conn
-
-        self._conn = await anyio.to_thread.run_sync(_open, limiter=self._limiter)
-
-    async def close(self) -> None:
-        """Close the underlying database connection."""
-        if self._conn:
-            conn = self._conn
-            self._conn = None
-            await anyio.to_thread.run_sync(conn.close, limiter=self._limiter)
+    def _get_schema_sql(self) -> str:
+        return _CREATE_TABLE
 
     # ---- recording -----------------------------------------------------------
 
-    async def record_inbound(
-        self,
-        account_id: str,
-        sender_id: str,
-        endpoint_id: str,
-        content: str,
-        metadata: dict[str, Any] | None = None,
-    ) -> None:
-        """Record an inbound (WeChat -> endpoint) message."""
-        await self._insert("inbound", account_id, sender_id, endpoint_id, content, metadata)
-
-    async def record_outbound(
-        self,
-        account_id: str,
-        sender_id: str,
-        endpoint_id: str,
-        content: str,
-        metadata: dict[str, Any] | None = None,
-    ) -> None:
-        """Record an outbound (endpoint -> WeChat) message."""
-        await self._insert("outbound", account_id, sender_id, endpoint_id, content, metadata)
-
-    async def _insert(
+    async def record(
         self,
         direction: str,
         account_id: str,
         sender_id: str,
         endpoint_id: str,
         content: str,
-        metadata: dict[str, Any] | None,
+        metadata: dict[str, Any] | None = None,
     ) -> None:
+        """Record a message with the given direction."""
         if not self._conn:
             return
         meta_str = json.dumps(metadata) if metadata else None
@@ -134,7 +96,29 @@ class MessageArchive:
             )
             self._conn.commit()
 
-        await anyio.to_thread.run_sync(_do, limiter=self._limiter)
+        await self._run(_do)  # type: ignore[arg-type]
+
+    async def record_inbound(
+        self,
+        account_id: str,
+        sender_id: str,
+        endpoint_id: str,
+        content: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Record an inbound (WeChat -> endpoint) message."""
+        await self.record(_DIR_INBOUND, account_id, sender_id, endpoint_id, content, metadata)
+
+    async def record_outbound(
+        self,
+        account_id: str,
+        sender_id: str,
+        endpoint_id: str,
+        content: str,
+        metadata: dict[str, Any] | None = None,
+    ) -> None:
+        """Record an outbound (endpoint -> WeChat) message."""
+        await self.record(_DIR_OUTBOUND, account_id, sender_id, endpoint_id, content, metadata)
 
     # ---- querying ------------------------------------------------------------
 
@@ -185,7 +169,7 @@ class MessageArchive:
             rows = self._conn.execute(sql, params).fetchall()
             return [_row_to_dict(r) for r in rows]
 
-        return await anyio.to_thread.run_sync(_do, limiter=self._limiter)
+        return await self._run(_do)  # type: ignore[arg-type]
 
     # ---- maintenance ---------------------------------------------------------
 
@@ -204,4 +188,4 @@ class MessageArchive:
             self._conn.commit()
             return cur.rowcount
 
-        return await anyio.to_thread.run_sync(_do, limiter=self._limiter)
+        return await self._run(_do)  # type: ignore[arg-type]

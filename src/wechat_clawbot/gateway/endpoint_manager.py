@@ -30,6 +30,18 @@ class EndpointManager:
 
     def __init__(self) -> None:
         self._endpoints: dict[str, EndpointInfo] = {}
+        # O(1) lookup indices (lowercased keys)
+        self._name_index: dict[str, str] = {}  # lower(name) -> endpoint_id
+        self._id_index: dict[str, str] = {}  # lower(id) -> endpoint_id
+
+    def _rebuild_index(self, endpoint_id: str, config: EndpointConfig) -> None:
+        """Update the name/id lookup indices for a single endpoint."""
+        # Remove old entries that point to this endpoint
+        self._name_index = {k: v for k, v in self._name_index.items() if v != endpoint_id}
+        self._id_index = {k: v for k, v in self._id_index.items() if v != endpoint_id}
+        # Add new entries
+        self._name_index[config.name.lower()] = endpoint_id
+        self._id_index[config.id.lower()] = endpoint_id
 
     # ---- registration --------------------------------------------------------
 
@@ -46,11 +58,14 @@ class EndpointManager:
         else:
             self._endpoints[config.id] = EndpointInfo(config=config)
             logger.info("Registered endpoint: %s (%s)", config.id, config.name)
+        self._rebuild_index(config.id, config)
 
     def unregister(self, endpoint_id: str) -> None:
         """Remove an endpoint from the registry."""
         removed = self._endpoints.pop(endpoint_id, None)
         if removed:
+            self._name_index = {k: v for k, v in self._name_index.items() if v != endpoint_id}
+            self._id_index = {k: v for k, v in self._id_index.items() if v != endpoint_id}
             logger.info("Unregistered endpoint: %s", endpoint_id)
 
     # ---- queries -------------------------------------------------------------
@@ -62,16 +77,13 @@ class EndpointManager:
     def get_endpoint_by_name(self, name: str) -> EndpointInfo | None:
         """Look up an endpoint by its display name (case-insensitive).
 
-        Returns the first match, or ``None``.
+        Falls back to matching by ID.  Returns ``None`` if not found.
         """
         name_lower = name.lower()
-        for info in self._endpoints.values():
-            if info.config.name.lower() == name_lower:
-                return info
-        # Also try matching by ID
-        for info in self._endpoints.values():
-            if info.config.id.lower() == name_lower:
-                return info
+        # Try name index first, then id index
+        eid = self._name_index.get(name_lower) or self._id_index.get(name_lower)
+        if eid:
+            return self._endpoints.get(eid)
         return None
 
     def list_endpoints(self) -> list[EndpointInfo]:
@@ -167,7 +179,6 @@ class EndpointManager:
             for endpoint_id, info in self._endpoints.items():
                 if info.status != EndpointStatus.ONLINE:
                     continue
-                # Check if any sub-channel still reports this endpoint as connected
                 still_connected = any(ch.is_endpoint_connected(endpoint_id) for ch in channels)
                 if not still_connected:
                     info.status = EndpointStatus.OFFLINE

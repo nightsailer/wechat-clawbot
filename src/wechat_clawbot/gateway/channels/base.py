@@ -1,8 +1,25 @@
-"""Base protocol for sub-channel implementations."""
+"""Base protocol and shared callback types for sub-channel implementations."""
 
 from __future__ import annotations
 
-from typing import Protocol, runtime_checkable
+from collections.abc import Awaitable, Callable
+from typing import Any, Protocol, runtime_checkable
+
+# Shared callback type aliases used across all sub-channels.
+ReplyCallback = Callable[[str, str, str], Awaitable[None]]
+"""(endpoint_id, sender_id, text) -> None"""
+
+SendFileCallback = Callable[[str, str, str, str], Awaitable[None]]
+"""(endpoint_id, sender_id, file_path, text) -> None"""
+
+TypingCallback = Callable[[str, str], Awaitable[None]]
+"""(endpoint_id, sender_id) -> None"""
+
+ConnectCallback = Callable[[str], Any]
+"""(endpoint_id) -> None  -- sync-compatible so no async wrappers needed."""
+
+DisconnectCallback = Callable[[str], Any]
+"""(endpoint_id) -> None  -- sync-compatible so no async wrappers needed."""
 
 
 @runtime_checkable

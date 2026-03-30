@@ -4,16 +4,16 @@ from __future__ import annotations
 
 import hmac
 import logging
-from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import httpx
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-logger = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from .base import ReplyCallback
 
-ReplyCallback = Callable[[str, str, str], Awaitable[None]]  # endpoint_id, sender_id, text
+logger = logging.getLogger(__name__)
 
 
 class HTTPChannel:
@@ -125,8 +125,7 @@ class HTTPChannel:
 
         try:
             resp = await self._client.post(ep["url"], json=payload, headers=headers)
-            if resp.status_code == 200:
-                # Check if response contains a reply
+            if 200 <= resp.status_code < 300:
                 try:
                     data = resp.json()
                     reply_text = data.get("reply", "") or data.get("text", "")

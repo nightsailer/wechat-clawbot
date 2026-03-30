@@ -8,6 +8,12 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from wechat_clawbot.gateway.channels.sdk_channel import (
+    MSG_TYPE_MESSAGE,
+    MSG_TYPE_PING,
+    MSG_TYPE_REPLY,
+)
+
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
@@ -82,7 +88,7 @@ class ClawBotClient:
 
                 async for raw in self._ws:
                     data = json.loads(raw)
-                    if data.get("type") == "message":
+                    if data.get("type") == MSG_TYPE_MESSAGE:
                         yield Message(
                             sender_id=data.get("sender_id", ""),
                             text=data.get("text", ""),
@@ -103,9 +109,11 @@ class ClawBotClient:
         """Send a reply to a WeChat user."""
         if not self._ws:
             raise RuntimeError("Not connected")
-        await self._ws.send(json.dumps({"type": "reply", "sender_id": sender_id, "text": text}))
+        await self._ws.send(
+            json.dumps({"type": MSG_TYPE_REPLY, "sender_id": sender_id, "text": text})
+        )
 
     async def ping(self) -> None:
         """Send a ping to keep the connection alive."""
         if self._ws:
-            await self._ws.send(json.dumps({"type": "ping"}))
+            await self._ws.send(json.dumps({"type": MSG_TYPE_PING}))

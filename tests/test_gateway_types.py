@@ -60,7 +60,6 @@ class TestEndpointBinding:
         assert binding.endpoint_id == "ep-1"
         assert before <= binding.bound_at <= after
         assert binding.permissions == ["read", "write"]
-        assert binding.last_message_at == 0.0
 
     def test_custom_permissions(self):
         binding = EndpointBinding(endpoint_id="ep-2", permissions=["read"])

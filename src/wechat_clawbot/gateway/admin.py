@@ -88,7 +88,6 @@ class AdminAPI:
         """GET /api/status — overall gateway status."""
         endpoints = self._endpoint_manager.list_endpoints()
         online = self._endpoint_manager.get_online_count()
-        users = self._session_store.list_users()
         accounts = self._poller_manager.account_ids if self._poller_manager else []
 
         return JSONResponse(
@@ -100,7 +99,7 @@ class AdminAPI:
                     "total": len(endpoints),
                     "online": online,
                 },
-                "users": len(users),
+                "users": self._session_store.user_count,
             }
         )
 

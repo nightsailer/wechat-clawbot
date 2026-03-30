@@ -24,6 +24,9 @@ def _normalize_user_id(user_id: str) -> str:
     return re.sub(r"[^a-zA-Z0-9_-]", "_", user_id)
 
 
+_LAST_ACTIVE_WRITE_INTERVAL = 60.0  # Only write last_active_at if >60s since last write
+
+
 class SessionStore:
     """Manages user sessions with JSON file persistence."""
 
@@ -31,6 +34,7 @@ class SessionStore:
         self._users_dir = users_dir
         self._users_dir.mkdir(parents=True, exist_ok=True)
         self._cache: dict[str, UserState] = {}
+        self._last_write_at: dict[str, float] = {}
         self._load_all()
 
     def _load_all(self) -> None:
@@ -84,11 +88,21 @@ class SessionStore:
         self._save(user)
         return user
 
-    def update_user(self, user: UserState) -> None:
-        """Update and persist user state."""
-        user.last_active_at = time.time()
+    def update_user(self, user: UserState, *, force_write: bool = False) -> None:
+        """Update and persist user state.
+
+        Throttles disk writes when only ``last_active_at`` changes -- the
+        file is skipped if the last write was less than 60 seconds ago,
+        unless *force_write* is ``True``.
+        """
+        now = time.time()
+        user.last_active_at = now
         self._cache[user.user_id] = user
-        self._save(user)
+
+        last_write = self._last_write_at.get(user.user_id, 0.0)
+        if force_write or (now - last_write) >= _LAST_ACTIVE_WRITE_INTERVAL:
+            self._save(user)
+            self._last_write_at[user.user_id] = now
 
     def set_active_endpoint(self, user_id: str, endpoint_id: str) -> bool:
         """Switch user's active endpoint. Returns False if user not found."""
@@ -98,7 +112,7 @@ class SessionStore:
         if not user.is_bound_to(endpoint_id):
             return False
         user.active_endpoint = endpoint_id
-        self.update_user(user)
+        self.update_user(user, force_write=True)
         return True
 
     def get_active_endpoint(self, user_id: str) -> str:
@@ -116,7 +130,7 @@ class SessionStore:
         user.bindings.append(EndpointBinding(endpoint_id=endpoint_id))
         if not user.active_endpoint:
             user.active_endpoint = endpoint_id
-        self.update_user(user)
+        self.update_user(user, force_write=True)
         return True
 
     def unbind_endpoint(self, user_id: str, endpoint_id: str) -> bool:
@@ -127,7 +141,7 @@ class SessionStore:
         user.bindings = [b for b in user.bindings if b.endpoint_id != endpoint_id]
         if user.active_endpoint == endpoint_id:
             user.active_endpoint = user.bindings[0].endpoint_id if user.bindings else ""
-        self.update_user(user)
+        self.update_user(user, force_write=True)
         return True
 
     def record_user_account(self, user_id: str, account_id: str) -> None:
@@ -141,7 +155,7 @@ class SessionStore:
             return
         if user.account_id != account_id:
             user.account_id = account_id
-            self.update_user(user)
+            self.update_user(user, force_write=True)
 
     def resolve_account(self, user_id: str) -> str:
         """Resolve which Bot account to use for sending to this user.
@@ -154,6 +168,11 @@ class SessionStore:
 
     def list_users(self) -> list[UserState]:
         return list(self._cache.values())
+
+    @property
+    def user_count(self) -> int:
+        """Return the number of known users without materializing a list."""
+        return len(self._cache)
 
     def get_context_token(self, account_id: str, user_id: str) -> str | None:
         """Delegate to messaging.inbound context token store."""
@@ -177,7 +196,6 @@ class SessionStore:
                     "endpoint_id": b.endpoint_id,
                     "bound_at": b.bound_at,
                     "permissions": b.permissions,
-                    "last_message_at": b.last_message_at,
                 }
                 for b in user.bindings
             ],
@@ -201,7 +219,6 @@ class SessionStore:
                 endpoint_id=b["endpoint_id"],
                 bound_at=b.get("bound_at", 0),
                 permissions=b.get("permissions", ["read", "write"]),
-                last_message_at=b.get("last_message_at", 0),
             )
             for b in data.get("bindings", [])
         ]

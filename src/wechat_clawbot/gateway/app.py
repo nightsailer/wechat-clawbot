@@ -35,13 +35,25 @@ from .types import (
     DeliveryStatus,
     EndpointConfig,
     InboundMessage,
+    RouteResult,
     RouteType,
 )
 
 if TYPE_CHECKING:
+    from starlette.applications import Starlette
+
     from .channels.base import SubChannel
 
 logger = logging.getLogger(__name__)
+
+
+async def _run_uvicorn(app: Starlette, host: str, port: int, log_level: str) -> None:
+    """Run a Starlette ASGI app via Uvicorn."""
+    import uvicorn
+
+    config = uvicorn.Config(app, host=host, port=port, log_level=log_level)
+    server = uvicorn.Server(config)
+    await server.serve()
 
 
 class GatewayApp:
@@ -70,12 +82,10 @@ class GatewayApp:
         """Start the gateway."""
         logger.info("Starting gateway...")
 
-        # Init session store and authorization
         users_dir = self._state_dir / "users"
         self._session_store = SessionStore(users_dir)
         self._authz = AuthZModule(self._config.authorization)
 
-        # Init endpoint manager from config
         self._endpoint_manager = EndpointManager()
         for ep_id, ep_cfg in self._config.endpoints.items():
             self._endpoint_manager.register(
@@ -90,22 +100,18 @@ class GatewayApp:
                 )
             )
 
-        # Init router
         self._router = Router(
             config=self._config.routing,
             session_store=self._session_store,
             endpoint_manager=self._endpoint_manager,
         )
 
-        # Init delivery queue
         db_path = self._state_dir / "gateway.db"
         self._delivery = DeliveryQueue(db_path)
         await self._delivery.open()
 
-        # Init invite manager
         self._invite_manager = InviteManager(self._state_dir)
 
-        # Init MCP channel with connect/disconnect callbacks
         self._mcp_channel = MCPChannel(
             on_reply=self._handle_reply,
             on_send_file=self._handle_send_file,
@@ -114,35 +120,24 @@ class GatewayApp:
             on_disconnect=self._on_endpoint_disconnected,
         )
 
-        # Init SDK channel — callbacks must be async to match SDKChannel's type
-        async def _sdk_on_connect(eid: str) -> None:
-            self._on_endpoint_connected(eid)
-
-        async def _sdk_on_disconnect(eid: str) -> None:
-            self._on_endpoint_disconnected(eid)
-
         self._sdk_channel = SDKChannel(
             on_reply=self._handle_reply,
-            on_connect=_sdk_on_connect,
-            on_disconnect=_sdk_on_disconnect,
+            on_connect=self._on_endpoint_connected,
+            on_disconnect=self._on_endpoint_disconnected,
         )
 
-        # Init HTTP channel and register HTTP-type endpoints
         self._http_channel = HTTPChannel(on_reply=self._handle_reply)
         for ep_id, ep_cfg in self._config.endpoints.items():
             if ep_cfg.type == ChannelType.HTTP:
                 self._http_channel.register_endpoint(ep_id, ep_cfg.url, ep_cfg.api_key)
-                # HTTP endpoints are "connected" as long as they have a URL
                 if ep_cfg.url:
                     self._endpoint_manager.set_connected(ep_id, connected=True)
         await self._http_channel.start()
 
-        # Build channel dispatch list
         self._channels = [
             c for c in [self._mcp_channel, self._sdk_channel, self._http_channel] if c
         ]
 
-        # Init message archive if enabled
         if self._config.archive.enabled:
             archive_path = self._config.archive.path
             if not archive_path:
@@ -151,7 +146,6 @@ class GatewayApp:
             await self._archive.open()
             logger.info("Message archive enabled: %s", archive_path)
 
-        # Resolve and cache credentials for each account
         self._credentials_cache = {}
         for account_id, account_cfg in self._config.accounts.items():
             token = account_cfg.token
@@ -166,7 +160,6 @@ class GatewayApp:
 
             self._credentials_cache[account_id] = (token, base_url)
 
-        # Init PollerManager and register all configured accounts
         self._poller_manager = PollerManager(self._state_dir)
         for account_id, (token, base_url) in self._credentials_cache.items():
             self._poller_manager.add_account(
@@ -177,7 +170,6 @@ class GatewayApp:
             )
             logger.info("Registered account: %s", account_id)
 
-        # Init Admin API
         self._admin_api = AdminAPI(
             config=self._config,
             session_store=self._session_store,
@@ -186,17 +178,22 @@ class GatewayApp:
             poller_manager=self._poller_manager,
         )
 
-        # Run poller + HTTP servers concurrently
         self._stop_event = anyio.Event()
 
         assert self._poller_manager is not None
         assert self._stop_event is not None
+        gw = self._config.gateway
         async with anyio.create_task_group() as tg:
             tg.start_soon(self._poller_manager.start_all, self._stop_event)
-            tg.start_soon(self._run_http_server)
+            tg.start_soon(
+                _run_uvicorn,
+                self._mcp_channel.get_asgi_app(),
+                gw.host,
+                gw.port,
+                gw.log_level,
+            )
             tg.start_soon(self._run_admin_server)
             logger.info("Gateway started successfully")
-            # Wait for stop signal
             await self._stop_event.wait()
             tg.cancel_scope.cancel()
 
@@ -217,50 +214,20 @@ class GatewayApp:
             await self._delivery.close()
         logger.info("Gateway stopped")
 
-    async def _run_http_server(self) -> None:
-        """Run the HTTP server for MCP SSE endpoints."""
-        import uvicorn
-
-        assert self._mcp_channel is not None
-        app = self._mcp_channel.get_asgi_app()
-        config = uvicorn.Config(
-            app,
-            host=self._config.gateway.host,
-            port=self._config.gateway.port,
-            log_level=self._config.gateway.log_level,
-        )
-        server = uvicorn.Server(config)
-        await server.serve()
-
     async def _run_admin_server(self) -> None:
         """Run the admin HTTP server on the admin port."""
-        import uvicorn
-
         assert self._admin_api is not None
-        app = self._admin_api.get_asgi_app()
-        config = uvicorn.Config(
-            app,
-            host=self._config.gateway.host,
-            port=self._config.gateway.admin_port,
-            log_level=self._config.gateway.log_level,
-        )
-        server = uvicorn.Server(config)
-        logger.info(
-            "Admin API listening on %s:%d",
-            self._config.gateway.host,
-            self._config.gateway.admin_port,
-        )
-        await server.serve()
+        gw = self._config.gateway
+        logger.info("Admin API listening on %s:%d", gw.host, gw.admin_port)
+        await _run_uvicorn(self._admin_api.get_asgi_app(), gw.host, gw.admin_port, gw.log_level)
 
     # ---- endpoint connect/disconnect callbacks --------------------------------
 
     def _on_endpoint_connected(self, endpoint_id: str) -> None:
-        """Called by MCP channel when an endpoint connects."""
         if self._endpoint_manager:
             self._endpoint_manager.set_connected(endpoint_id, connected=True)
 
     def _on_endpoint_disconnected(self, endpoint_id: str) -> None:
-        """Called by MCP channel when an endpoint disconnects."""
         if self._endpoint_manager:
             self._endpoint_manager.set_connected(endpoint_id, connected=False)
 
@@ -276,11 +243,9 @@ class GatewayApp:
         sender_id = msg.sender_id
         account_id = msg.account_id
 
-        # 1. Look up user by sender_id
         user = self._session_store.get_user(sender_id)
 
         if user is None:
-            # 2. New user: check authorization
             if not self._authz.is_allowed(sender_id):
                 logger.warning("Unauthorized user %s rejected", sender_id)
                 await self._send_gateway_message(
@@ -288,11 +253,9 @@ class GatewayApp:
                 )
                 return
 
-            # Create user with default endpoints and appropriate role
             role = self._authz.get_role(sender_id)
             default_eps = self._authz.default_endpoints
             if not default_eps:
-                # Fall back to all configured endpoints
                 default_eps = list(self._config.endpoints.keys())
 
             user = self._session_store.create_user(
@@ -307,30 +270,23 @@ class GatewayApp:
                 f"Welcome! You are connected to endpoint: {user.active_endpoint}",
             )
 
-        # Record which account this user communicates through
         self._session_store.record_user_account(sender_id, account_id)
 
-        # Store context token if present
         if msg.context_token:
             self._session_store.set_context_token(account_id, sender_id, msg.context_token)
 
-        # 2b. Archive inbound message
         if self._archive:
             await self._archive.record_inbound(
                 account_id=account_id,
                 sender_id=sender_id,
-                endpoint_id="",  # not yet routed
+                endpoint_id="",
                 content=msg.text,
             )
 
-        # 3. Route the message
         route = self._router.resolve(sender_id, msg.text)
 
-        # 4. Handle by route type
         if route.type == RouteType.GATEWAY_COMMAND:
-            await self._handle_gateway_command(
-                account_id, sender_id, route.command, route.command_args, route.error
-            )
+            await self._handle_gateway_command(account_id, sender_id, route)
             return
 
         if route.type == RouteType.COMMAND_TO:
@@ -344,7 +300,6 @@ class GatewayApp:
 
         if route.type == RouteType.MENTION:
             if not route.endpoint_id:
-                # Mention didn't resolve — shouldn't happen since router returns None
                 await self._send_gateway_message(account_id, sender_id, "Endpoint not found.")
                 return
             await self._deliver_to_endpoint(
@@ -367,24 +322,22 @@ class GatewayApp:
         self,
         account_id: str,
         sender_id: str,
-        command: str,
-        args: str,
-        error: str,
+        route: RouteResult,
     ) -> None:
         """Process a gateway command and send the response."""
         assert self._session_store is not None
         assert self._endpoint_manager is not None
         assert self._authz is not None
 
-        if error:
-            await self._send_gateway_message(account_id, sender_id, error)
+        if route.error:
+            await self._send_gateway_message(account_id, sender_id, route.error)
             return
 
         ctx = GatewayCommandContext(
             sender_id=sender_id,
             account_id=account_id,
-            command=command,
-            args=args,
+            command=route.command,
+            args=route.command_args,
             session_store=self._session_store,
             endpoint_manager=self._endpoint_manager,
             authz=self._authz,
@@ -401,7 +354,6 @@ class GatewayApp:
         msg: InboundMessage,
     ) -> None:
         """Deliver a message to a specific endpoint."""
-        # Enqueue for delivery guarantee
         record = DeliveryRecord(
             message_id=msg.message_id or str(uuid.uuid4()),
             account_id=account_id,
@@ -415,7 +367,6 @@ class GatewayApp:
         assert self._delivery is not None
         await self._delivery.enqueue(record)
 
-        # Try to deliver via the first connected sub-channel
         delivered = False
         for channel in self._channels:
             if channel.is_endpoint_connected(endpoint_id):
@@ -439,7 +390,6 @@ class GatewayApp:
         """Build WeixinApiOptions for the given account and sender."""
         token, base_url = self._credentials_cache.get(account_id, ("", ""))
 
-        # Retrieve cached context token via session store or fallback
         ctx_token: str | None = None
         if self._session_store:
             ctx_token = self._session_store.get_context_token(account_id, sender_id)
@@ -453,24 +403,19 @@ class GatewayApp:
         )
 
     async def _handle_reply(self, endpoint_id: str, sender_id: str, text: str) -> None:
-        """Handle wechat_reply from an MCP endpoint.
+        """Handle wechat_reply from an endpoint.
 
-        If the reply comes from a non-active endpoint, prefix it with the
-        endpoint name so the user knows which endpoint is responding.
-
-        Uses the session store to resolve which account to reply through.
+        Prefixes the reply with the endpoint name when it comes from a
+        non-active endpoint, so the user knows which endpoint responded.
         """
-        # Resolve account from session (multi-account aware)
         account_id = ""
         if self._session_store:
             account_id = self._session_store.resolve_account(sender_id)
         if not account_id:
-            # Fall back to first configured account
             account_id = next(iter(self._config.accounts))
 
         opts = self._resolve_account_api_options(account_id, sender_id)
 
-        # Add endpoint name prefix if reply is from non-active endpoint
         reply_text = text
         if self._session_store and self._endpoint_manager:
             active = self._session_store.get_active_endpoint(sender_id)
@@ -482,7 +427,6 @@ class GatewayApp:
         await send_message_weixin(sender_id, reply_text, opts)
         logger.info("Reply sent to %s via account %s", sender_id, account_id)
 
-        # Archive outbound message
         if self._archive:
             await self._archive.record_outbound(
                 account_id=account_id,
