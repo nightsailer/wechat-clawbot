@@ -21,9 +21,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 # Gateway commands that are recognized after the command prefix.
-GATEWAY_COMMANDS = frozenset(
-    {"list", "use", "to", "status", "bind", "unbind", "help", "admin"}
-)
+GATEWAY_COMMANDS = frozenset({"list", "use", "to", "status", "bind", "unbind", "help", "admin"})
 
 
 class Router:
@@ -81,7 +79,7 @@ class Router:
                 continue
 
             # Extract the word after the prefix
-            remainder = text[len(prefix):]
+            remainder = text[len(prefix) :]
             if not remainder:
                 continue
 
@@ -151,7 +149,7 @@ class Router:
             return None
 
         # Extract the name after the prefix
-        remainder = text[len(mention_prefix):]
+        remainder = text[len(mention_prefix) :]
         if not remainder:
             return None
 

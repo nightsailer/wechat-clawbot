@@ -190,6 +190,8 @@ class TestCallback:
         """Test the callback endpoint via Starlette test client."""
         from starlette.applications import Starlette
 
+        # Must register endpoint so callback handler finds it
+        channel.register_endpoint("ep-1", "http://example.com/hook")
         app = Starlette(routes=channel.get_routes())
         client = TestClient(app, raise_server_exceptions=False)
         resp = client.post(
@@ -200,9 +202,19 @@ class TestCallback:
         assert resp.json() == {"status": "ok"}
         on_reply.assert_called_once_with("ep-1", "user@im.wechat", "hi from webhook")
 
+    def test_callback_unregistered_endpoint(self, channel: HTTPChannel) -> None:
+        """Callback to unregistered endpoint returns 404."""
+        from starlette.applications import Starlette
+
+        app = Starlette(routes=channel.get_routes())
+        client = TestClient(app, raise_server_exceptions=False)
+        resp = client.post("/http/unknown/callback", json={"sender_id": "u", "text": "t"})
+        assert resp.status_code == 404
+
     def test_callback_ignores_empty_fields(self, channel: HTTPChannel, on_reply: AsyncMock) -> None:
         from starlette.applications import Starlette
 
+        channel.register_endpoint("ep-1", "http://example.com/hook")
         app = Starlette(routes=channel.get_routes())
         client = TestClient(app, raise_server_exceptions=False)
         resp = client.post("/http/ep-1/callback", json={"sender_id": "", "text": ""})

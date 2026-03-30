@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 import logging
+from typing import TYPE_CHECKING
 
-from .config import AuthorizationConfig
 from .types import UserRole
+
+if TYPE_CHECKING:
+    from .config import AuthorizationConfig
 
 logger = logging.getLogger(__name__)
 

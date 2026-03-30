@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hmac
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -56,6 +57,17 @@ class HTTPChannel:
     async def _handle_callback(self, request: Any) -> JSONResponse:
         """Handle callback from a webhook endpoint."""
         endpoint_id: str = request.path_params["endpoint_id"]
+        ep = self._endpoints.get(endpoint_id)
+        if not ep:
+            return JSONResponse({"error": "not found"}, status_code=404)
+
+        # Verify api_key if configured for this endpoint
+        if ep["api_key"]:
+            auth = request.headers.get("authorization", "")
+            expected = f"Bearer {ep['api_key']}"
+            if not hmac.compare_digest(auth, expected):
+                return JSONResponse({"error": "unauthorized"}, status_code=401)
+
         body = await request.json()
         sender_id: str = body.get("sender_id", "")
         text: str = body.get("text", "")

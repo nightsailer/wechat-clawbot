@@ -108,11 +108,17 @@ class GatewayApp:
             on_disconnect=self._on_endpoint_disconnected,
         )
 
-        # Init SDK channel
+        # Init SDK channel — callbacks must be async to match SDKChannel's type
+        async def _sdk_on_connect(eid: str) -> None:
+            self._on_endpoint_connected(eid)
+
+        async def _sdk_on_disconnect(eid: str) -> None:
+            self._on_endpoint_disconnected(eid)
+
         self._sdk_channel = SDKChannel(
             on_reply=self._handle_reply,
-            on_connect=lambda eid: self._on_endpoint_connected(eid),
-            on_disconnect=lambda eid: self._on_endpoint_disconnected(eid),
+            on_connect=_sdk_on_connect,
+            on_disconnect=_sdk_on_disconnect,
         )
 
         # Init HTTP channel and register HTTP-type endpoints

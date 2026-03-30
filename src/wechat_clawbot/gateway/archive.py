@@ -64,6 +64,7 @@ class MessageArchive:
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
         self._conn: sqlite3.Connection | None = None
+        self._limiter = anyio.CapacityLimiter(1)
 
     async def open(self) -> None:
         """Create the database connection and ensure the schema exists."""
@@ -77,14 +78,14 @@ class MessageArchive:
             conn.executescript(_CREATE_TABLE)
             return conn
 
-        self._conn = await anyio.to_thread.run_sync(_open)
+        self._conn = await anyio.to_thread.run_sync(_open, limiter=self._limiter)
 
     async def close(self) -> None:
         """Close the underlying database connection."""
         if self._conn:
             conn = self._conn
             self._conn = None
-            await anyio.to_thread.run_sync(conn.close)
+            await anyio.to_thread.run_sync(conn.close, limiter=self._limiter)
 
     # ---- recording -----------------------------------------------------------
 
@@ -133,7 +134,7 @@ class MessageArchive:
             )
             self._conn.commit()
 
-        await anyio.to_thread.run_sync(_do)
+        await anyio.to_thread.run_sync(_do, limiter=self._limiter)
 
     # ---- querying ------------------------------------------------------------
 
@@ -184,7 +185,7 @@ class MessageArchive:
             rows = self._conn.execute(sql, params).fetchall()
             return [_row_to_dict(r) for r in rows]
 
-        return await anyio.to_thread.run_sync(_do)
+        return await anyio.to_thread.run_sync(_do, limiter=self._limiter)
 
     # ---- maintenance ---------------------------------------------------------
 
@@ -203,4 +204,4 @@ class MessageArchive:
             self._conn.commit()
             return cur.rowcount
 
-        return await anyio.to_thread.run_sync(_do)
+        return await anyio.to_thread.run_sync(_do, limiter=self._limiter)

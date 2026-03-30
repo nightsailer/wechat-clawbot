@@ -140,6 +140,7 @@ class DeliveryQueue:
     def __init__(self, db_path: Path) -> None:
         self._db_path = db_path
         self._conn: sqlite3.Connection | None = None
+        self._limiter = anyio.CapacityLimiter(1)
 
     # -- lifecycle -----------------------------------------------------------
 
@@ -172,8 +173,8 @@ class DeliveryQueue:
         return self._conn
 
     async def _run(self, fn: functools.partial[Any]) -> Any:
-        """Run *fn* in a worker thread."""
-        return await anyio.to_thread.run_sync(fn)
+        """Run *fn* in a worker thread, serialized via capacity limiter."""
+        return await anyio.to_thread.run_sync(fn, limiter=self._limiter)
 
     # -- public API ----------------------------------------------------------
 

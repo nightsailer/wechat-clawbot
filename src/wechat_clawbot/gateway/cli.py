@@ -244,11 +244,32 @@ def _cmd_start(args: argparse.Namespace) -> None:
     from .app import GatewayApp
 
     app = GatewayApp(config)
+
+    async def _run_with_shutdown() -> None:
+        """Run gateway with graceful shutdown on SIGINT/SIGTERM."""
+        import signal as _signal
+
+        loop = asyncio.get_running_loop()
+        stop_requested = False
+
+        def _signal_handler() -> None:
+            nonlocal stop_requested
+            if not stop_requested:
+                stop_requested = True
+                print("\nGateway shutting down...")
+                loop.create_task(app.stop())
+
+        for sig in (_signal.SIGINT, _signal.SIGTERM):
+            loop.add_signal_handler(sig, _signal_handler)
+
+        try:
+            await app.start()
+        except Exception:
+            if not stop_requested:
+                raise
+
     try:
-        asyncio.run(app.start())
-    except KeyboardInterrupt:
-        print("\nGateway shutting down...")
-        asyncio.run(app.stop())
+        asyncio.run(_run_with_shutdown())
     finally:
         pid_file.unlink(missing_ok=True)
 

@@ -7,6 +7,7 @@ Protected by Bearer-token authentication when ``admin_token`` is set.
 
 from __future__ import annotations
 
+import hmac
 import logging
 import time
 from typing import TYPE_CHECKING
@@ -37,7 +38,7 @@ class _BearerAuthMiddleware(BaseHTTPMiddleware):
 
     async def dispatch(self, request: Request, call_next):  # type: ignore[override]
         auth = request.headers.get("authorization", "")
-        if not auth.startswith("Bearer ") or auth[7:] != self._token:
+        if not auth.startswith("Bearer ") or not hmac.compare_digest(auth[7:], self._token):
             return JSONResponse({"error": "unauthorized"}, status_code=401)
         return await call_next(request)
 

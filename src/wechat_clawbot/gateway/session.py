@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
+import contextlib
 import json
 import logging
 import os
 import re
 import tempfile
 import time
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from wechat_clawbot.messaging.inbound import get_context_token, set_context_token
 
 from .types import EndpointBinding, EndpointSession, UserRole, UserState
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
@@ -55,10 +58,8 @@ class SessionStore:
             os.close(fd)
             os.replace(tmp, path)
         except Exception:
-            try:
+            with contextlib.suppress(OSError):
                 os.close(fd)
-            except OSError:
-                pass
             if os.path.exists(tmp):
                 os.unlink(tmp)
             raise
