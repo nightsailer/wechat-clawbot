@@ -149,7 +149,7 @@ Before you start, decide on:
 - **How many WeChat Bot accounts?** Each WeChat account can only create one Bot (1:1 binding). A single person managing multiple project endpoints needs just one Bot. For team collaboration, each team member needs their own Bot (one WeChat account = one Bot).
 - **What endpoints?** Name them after projects or team members (e.g., `project-alpha`, `alice-claude`, `support-bot`).
 - **Access control:** Who can use the bot? Options are `open` (anyone), `allowlist` (pre-approved users only), or `invite-code` (users redeem a code to gain access).
-- **Server:** The gateway needs to run on a machine accessible to both WeChat (internet) and your developers (network).
+- **Server:** The gateway pulls messages from WeChat via long-polling (outbound connection only) — WeChat does not need to reach the gateway. The gateway just needs: internet access (to call the iLink API) and developer access to its ports (for SSE/WebSocket endpoints).
 
 ### Step 1: Install and Initialize
 
