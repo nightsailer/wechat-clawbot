@@ -1,5 +1,7 @@
 # WeChat ClawBot Usage Guide
 
+[中文版](guide.zh.md) | English
+
 Practical, scenario-based guide for deploying and operating WeChat ClawBot. Organized by who you are and what you want to do.
 
 ---

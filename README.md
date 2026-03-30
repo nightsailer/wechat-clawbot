@@ -1,5 +1,7 @@
 # wechat-clawbot
 
+[中文版](README.zh.md) | English
+
 WeChat iLink Bot SDK with multi-user gateway for AI backends (Claude Code, Codex, custom bots).
 
 Ported from [@tencent-weixin/openclaw-weixin](https://www.npmjs.com/package/@tencent-weixin/openclaw-weixin) (TypeScript), synced with upstream v2.1.1.

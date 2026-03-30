@@ -1,5 +1,7 @@
 # wechat-clawbot
 
+[English](README.md) | 中文
+
 微信 iLink Bot SDK，内置多用户网关，支持 AI 后端接入（Claude Code、Codex、自定义机器人）。
 
 移植自 [@tencent-weixin/openclaw-weixin](https://www.npmjs.com/package/@tencent-weixin/openclaw-weixin)（TypeScript 版），已同步上游 v2.1.1。
