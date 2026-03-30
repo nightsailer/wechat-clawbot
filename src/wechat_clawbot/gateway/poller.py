@@ -31,6 +31,9 @@ logger = logging.getLogger(__name__)
 # Callback type for inbound messages
 MessageCallback = Callable[[InboundMessage], Awaitable[None]]
 
+# Re-export for convenience
+__all__ = ["MessageCallback", "Poller", "PollerManager"]
+
 _MAX_CONSECUTIVE_FAILURES = 3
 _FAILURE_RETRY_DELAY = 2.0
 _FAILURE_BACKOFF_DELAY = 30.0
@@ -201,3 +204,53 @@ class Poller:
         """Signal the poller to stop."""
         if self._stop_event is not None:
             self._stop_event.set()
+
+
+class PollerManager:
+    """Manages multiple Poller instances, one per Bot account."""
+
+    def __init__(self, state_dir: Path) -> None:
+        self._state_dir = state_dir
+        self._pollers: dict[str, Poller] = {}
+
+    def add_account(
+        self,
+        account_id: str,
+        base_url: str,
+        token: str | None,
+        on_message: MessageCallback,
+    ) -> None:
+        """Register a new account poller."""
+        self._pollers[account_id] = Poller(
+            account_id=account_id,
+            base_url=base_url,
+            token=token,
+            on_message=on_message,
+            state_dir=self._state_dir,
+        )
+
+    def remove_account(self, account_id: str) -> Poller | None:
+        """Remove an account poller. Returns the removed Poller or None."""
+        return self._pollers.pop(account_id, None)
+
+    def get_poller(self, account_id: str) -> Poller | None:
+        """Get a poller by account ID."""
+        return self._pollers.get(account_id)
+
+    async def start_all(self, stop_event: anyio.Event) -> None:
+        """Start all pollers concurrently."""
+        if not self._pollers:
+            logger.warning("PollerManager: no accounts configured, nothing to poll")
+            await stop_event.wait()
+            return
+        async with anyio.create_task_group() as tg:
+            for poller in self._pollers.values():
+                tg.start_soon(poller.run, stop_event)
+
+    @property
+    def account_ids(self) -> list[str]:
+        """Return list of registered account IDs."""
+        return list(self._pollers.keys())
+
+    def __len__(self) -> int:
+        return len(self._pollers)
