@@ -1,4 +1,4 @@
-"""Tests for bridge mode (_MessageQueue, _create_bridge_server, CLI parsing)."""
+"""Tests for bridge mode (_MessageQueue, _build_bridge_tools, CLI parsing)."""
 
 from __future__ import annotations
 
@@ -85,30 +85,15 @@ class TestBuildBridgeTools:
 
 
 class TestCreateBridgeServer:
-    def test_returns_server_and_tools(self) -> None:
+    def test_returns_server(self) -> None:
         q = _MessageQueue()
-        server, tools = _create_bridge_server(q)
+        server = _create_bridge_server(q)
         assert server is not None
-        assert len(tools) > 0
 
     def test_server_name(self) -> None:
         q = _MessageQueue()
-        server, _tools = _create_bridge_server(q)
+        server = _create_bridge_server(q)
         assert server.name == "wechat-bridge"
-
-    def test_tools_include_get_messages(self) -> None:
-        q = _MessageQueue()
-        _server, tools = _create_bridge_server(q)
-        names = {t.name for t in tools}
-        assert "wechat_get_messages" in names
-
-    def test_tools_include_base_tools(self) -> None:
-        q = _MessageQueue()
-        _server, tools = _create_bridge_server(q)
-        names = {t.name for t in tools}
-        assert "wechat_reply" in names
-        assert "wechat_send_file" in names
-        assert "wechat_typing" in names
 
 
 # ---------------------------------------------------------------------------
@@ -119,20 +104,12 @@ class TestCreateBridgeServer:
 class TestCLIParsing:
     """Test that the CLI correctly parses --gateway/--endpoint flags."""
 
-    def test_help_text_includes_bridge_options(self) -> None:
+    def test_help_text_includes_bridge_options(self, capsys) -> None:
         """Help text should mention --gateway and --endpoint."""
-        import sys
-        from io import StringIO
-
         from wechat_clawbot.claude_channel.cli import _print_help
 
-        old_stdout = sys.stdout
-        sys.stdout = StringIO()
-        try:
-            _print_help()
-            output = sys.stdout.getvalue()
-        finally:
-            sys.stdout = old_stdout
+        _print_help()
+        output = capsys.readouterr().out
 
         assert "--gateway" in output
         assert "--endpoint" in output

@@ -77,7 +77,7 @@ def _build_bridge_tools() -> list[mcp_types.Tool]:
 
 def _create_bridge_server(
     message_queue: _MessageQueue,
-) -> tuple[Server, list[mcp_types.Tool]]:
+) -> Server:
     """Create an MCP server with WeChat tools + wechat_get_messages."""
     server = Server(
         name="wechat-bridge",
@@ -103,12 +103,14 @@ def _create_bridge_server(
 
     @server.read_resource()
     async def read_resource(uri: str) -> str:
-        if uri == "wechat://messages/pending":
-            msgs = message_queue.drain()
+        # Compare as str — MCP SDK may pass AnyUrl which != str directly
+        if str(uri) == "wechat://messages/pending":
+            # Peek only (don't drain) — let wechat_get_messages tool handle drain
+            msgs = list(message_queue._queue)
             return json.dumps({"messages": msgs, "count": len(msgs)})
         raise ValueError(f"unknown resource: {uri}")
 
-    return server, bridge_tools
+    return server
 
 
 # -- SSE listener ------------------------------------------------------------
@@ -120,22 +122,36 @@ async def _sse_listener(
     write_stream: anyio.abc.ObjectSendStream[SessionMessage],
     message_queue: _MessageQueue,
     stop_event: anyio.Event,
+    api_key: str = "",
 ) -> None:
     """Connect to gateway SSE endpoint and forward messages."""
     sse_url = f"{gateway_url.rstrip('/')}/mcp/{endpoint_id}/sse"
     _log(f"Connecting to gateway SSE: {sse_url}")
 
+    headers: dict[str, str] = {}
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    backoff = 1.0
+    max_backoff = 60.0
+
     while not stop_event.is_set():
         try:
             async with (
-                httpx.AsyncClient(timeout=None) as client,
+                httpx.AsyncClient(timeout=None, headers=headers) as client,
                 client.stream("GET", sse_url) as resp,
             ):
+                if resp.status_code == 401:
+                    _log_error("SSE auth failed (401). Check --api-key.")
+                    await anyio.sleep(max_backoff)
+                    continue
                 if resp.status_code != 200:
                     _log_error(f"SSE connection failed: {resp.status_code}")
-                    await anyio.sleep(5.0)
+                    await anyio.sleep(min(backoff, max_backoff))
+                    backoff = min(backoff * 2, max_backoff)
                     continue
 
+                backoff = 1.0  # reset on success
                 _log("Connected to gateway SSE")
 
                 async for line in resp.aiter_lines():
@@ -193,17 +209,18 @@ async def _sse_listener(
         except Exception as e:
             if stop_event.is_set():
                 break
-            _log_error(f"SSE connection error: {e}, reconnecting in 5s...")
-            await anyio.sleep(5.0)
+            _log_error(f"SSE connection error: {e}, reconnecting in {backoff:.0f}s...")
+            await anyio.sleep(min(backoff, max_backoff))
+            backoff = min(backoff * 2, max_backoff)
 
 
 # -- Main entry point --------------------------------------------------------
 
 
-async def run_bridge_server(gateway_url: str, endpoint_id: str) -> None:
+async def run_bridge_server(gateway_url: str, endpoint_id: str, api_key: str = "") -> None:
     """Start the bridge MCP server connecting to a gateway."""
     message_queue = _MessageQueue()
-    server, _bridge_tools = _create_bridge_server(message_queue)
+    server = _create_bridge_server(message_queue)
 
     # Gateway API URL for forwarding tool calls
     gateway_api_url = f"{gateway_url.rstrip('/')}/mcp/{endpoint_id}/messages"
@@ -227,8 +244,11 @@ async def run_bridge_server(gateway_url: str, endpoint_id: str) -> None:
             return [mcp_types.TextContent(type="text", text="\n".join(lines))]
 
         # Forward other tools (wechat_reply, wechat_send_file, wechat_typing) to gateway
+        fwd_headers: dict[str, str] = {}
+        if api_key:
+            fwd_headers["Authorization"] = f"Bearer {api_key}"
         try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(timeout=30.0, headers=fwd_headers) as client:
                 payload = {
                     "jsonrpc": "2.0",
                     "id": 1,
@@ -265,6 +285,7 @@ async def run_bridge_server(gateway_url: str, endpoint_id: str) -> None:
                 write_stream,
                 message_queue,
                 stop_event,
+                api_key,
             )
 
             try:

@@ -31,6 +31,7 @@ Commands:
 Options for serve:
   --gateway <url>    连接到 Gateway 的 URL（桥接模式）
   --endpoint <id>    Gateway 中的端点 ID（桥接模式必填）
+  --api-key <key>    Gateway 认证密钥（可选）
 
 Quick start (direct mode):
   1. wechat-clawbot-cc setup
@@ -60,9 +61,10 @@ def main() -> None:
         return
 
     if command == "serve":
-        # Parse optional --gateway and --endpoint flags
+        # Parse optional --gateway, --endpoint, --api-key flags
         gateway_url = None
         endpoint_id = None
+        api_key = ""
         i = 1
         while i < len(args):
             if args[i] == "--gateway" and i + 1 < len(args):
@@ -70,6 +72,9 @@ def main() -> None:
                 i += 2
             elif args[i] == "--endpoint" and i + 1 < len(args):
                 endpoint_id = args[i + 1]
+                i += 2
+            elif args[i] == "--api-key" and i + 1 < len(args):
+                api_key = args[i + 1]
                 i += 2
             else:
                 i += 1
@@ -85,7 +90,7 @@ def main() -> None:
             from .bridge import run_bridge_server
 
             _log_info(f"Bridge mode: gateway={gateway_url} endpoint={endpoint_id}")
-            anyio.run(run_bridge_server, gateway_url, endpoint_id)
+            anyio.run(run_bridge_server, gateway_url, endpoint_id, api_key)
         else:
             # Direct mode — poll WeChat directly
             from .credentials import load_credentials
