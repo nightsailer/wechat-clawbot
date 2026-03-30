@@ -8,6 +8,12 @@ from __future__ import annotations
 
 import logging
 import time
+from typing import TYPE_CHECKING
+
+import anyio
+
+if TYPE_CHECKING:
+    from .channels.base import SubChannel
 
 from .types import EndpointConfig, EndpointInfo, EndpointStatus
 
@@ -132,3 +138,41 @@ class EndpointManager:
     def get_online_count(self) -> int:
         """Return the number of currently online endpoints."""
         return sum(1 for info in self._endpoints.values() if info.status == EndpointStatus.ONLINE)
+
+    # ---- health check --------------------------------------------------------
+
+    async def health_check_loop(
+        self,
+        channels: list[SubChannel] | None = None,
+        interval: float = 60.0,
+        stop_event: anyio.Event | None = None,
+    ) -> None:
+        """Periodically check endpoint health via sub-channel connectivity.
+
+        This is a passive check — it verifies that endpoints marked ONLINE
+        are still reachable through at least one sub-channel.  If an endpoint
+        is no longer reachable it is marked OFFLINE.
+
+        Parameters
+        ----------
+        channels:
+            Sub-channels to query for connectivity.
+        interval:
+            Seconds between health-check sweeps.
+        stop_event:
+            When set, the loop exits.
+        """
+        channels = channels or []
+        while not (stop_event and stop_event.is_set()):
+            for endpoint_id, info in self._endpoints.items():
+                if info.status != EndpointStatus.ONLINE:
+                    continue
+                # Check if any sub-channel still reports this endpoint as connected
+                still_connected = any(ch.is_endpoint_connected(endpoint_id) for ch in channels)
+                if not still_connected:
+                    info.status = EndpointStatus.OFFLINE
+                    logger.info(
+                        "Health check: endpoint %s no longer connected, marking OFFLINE",
+                        endpoint_id,
+                    )
+            await anyio.sleep(interval)
