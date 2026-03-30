@@ -32,6 +32,7 @@ class GatewayServerConfig(BaseModel):
     host: str = "0.0.0.0"
     port: int = 8765
     admin_port: int = 8766
+    admin_token: str = ""
     log_level: str = "info"
 
 
@@ -175,6 +176,7 @@ gateway:
   host: 0.0.0.0
   port: 8765
   admin_port: 8766
+  admin_token: ""  # set a Bearer token to protect the admin API
   log_level: info
 
 # -- WeChat Bot accounts (downstream) ----------------------------------------
