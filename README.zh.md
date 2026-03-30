@@ -96,17 +96,41 @@ claude --channels server:wechat
 
 ### 桥接模式（通过网关）
 
-如果你已经运行了网关（Gateway），可以使用桥接模式，无需直接扫码登录。桥接模式连接到网关的 SSE 端点并转发消息：
+如果你已经运行了网关（Gateway），可以使用桥接模式代替直接扫码登录。桥接模式连接到网关的 SSE 端点，将微信消息转发给 AI 客户端。
+
+**Claude Code 使用桥接模式：**
 
 ```bash
-# 以桥接模式注册 MCP 服务器
-claude mcp add wechat -- wechat-clawbot-cc serve --gateway http://localhost:8765 --endpoint claude
+# 注册 MCP 服务器（桥接模式）
+claude mcp add wechat -- wechat-clawbot-cc serve --gateway http://localhost:8765 --endpoint my-project
 
 # 启动 Claude Code + 微信通道
 claude --channels server:wechat
 ```
 
-桥接模式同时支持 Codex（通过 `wechat_get_messages` 工具和 `notifications/resources/updated` 通知）。
+微信消息会通过 `notifications/claude/channel` 自动推送到 Claude Code 对话中，Claude 使用 `wechat_reply` 工具回复。
+
+**Codex 使用桥接模式：**
+
+```bash
+# 注册 MCP 服务器（桥接模式）
+codex mcp add wechat -- wechat-clawbot-cc serve --gateway http://localhost:8765 --endpoint my-project
+```
+
+Codex 不支持 channel 推送机制，桥接模式通过以下方式适配：
+- 新消息到达时发送 `notifications/resources/updated` 通知 Codex
+- Codex 调用 `wechat_get_messages` 工具获取待处理消息
+- Codex 调用 `wechat_reply` 工具发送回复
+
+**桥接模式参数：**
+
+| 参数 | 说明 |
+|------|------|
+| `--gateway <url>` | 网关地址（如 `http://localhost:8765`） |
+| `--endpoint <id>` | 网关中的端点 ID（必填） |
+| `--api-key <key>` | 网关认证密钥（可选，对应网关 admin_token） |
+
+**单用户直连模式不受影响**，不加 `--gateway` 参数时行为与之前完全一致。
 
 ## 快速开始 — Python SDK
 

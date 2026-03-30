@@ -96,17 +96,41 @@ Send a message in WeChat ClawBot, and Claude will reply.
 
 ### Bridge Mode (via Gateway)
 
-If you already have a running Gateway, you can use bridge mode instead of direct login. This connects to the Gateway's SSE endpoint and forwards messages:
+If you already have a running Gateway, use bridge mode instead of direct QR login. The bridge connects to the Gateway's SSE endpoint and forwards WeChat messages to your AI client.
+
+**Claude Code with bridge mode:**
 
 ```bash
-# Register the MCP server in bridge mode
-claude mcp add wechat -- wechat-clawbot-cc serve --gateway http://localhost:8765 --endpoint claude
+# Register MCP server in bridge mode
+claude mcp add wechat -- wechat-clawbot-cc serve --gateway http://localhost:8765 --endpoint my-project
 
-# Start Claude Code with the WeChat channel
+# Start Claude Code with WeChat channel
 claude --channels server:wechat
 ```
 
-Bridge mode also works with Codex (via `wechat_get_messages` tool and `notifications/resources/updated`).
+WeChat messages are pushed into the Claude Code session via `notifications/claude/channel`. Claude replies using the `wechat_reply` tool.
+
+**Codex with bridge mode:**
+
+```bash
+# Register MCP server in bridge mode
+codex mcp add wechat -- wechat-clawbot-cc serve --gateway http://localhost:8765 --endpoint my-project
+```
+
+Codex does not support channel push. The bridge adapts via:
+- Sends `notifications/resources/updated` when new messages arrive
+- Codex calls `wechat_get_messages` tool to fetch pending messages
+- Codex calls `wechat_reply` tool to send replies
+
+**Bridge mode flags:**
+
+| Flag | Description |
+|------|-------------|
+| `--gateway <url>` | Gateway URL (e.g. `http://localhost:8765`) |
+| `--endpoint <id>` | Endpoint ID in the gateway (required) |
+| `--api-key <key>` | Gateway auth key (optional, matches gateway admin_token) |
+
+**Direct single-user mode is unaffected** — omitting `--gateway` works exactly as before.
 
 ## Quick Start — Python SDK
 
