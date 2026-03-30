@@ -1,7 +1,7 @@
 [project]
 name = "wechat-clawbot"
 version = "0.4.0"
-description = "WeChat iLink Bot SDK with multi-endpoint gateway for AI backends (Claude Code, Codex, custom bots)"
+description = "WeChat iLink Bot SDK with multi-user, multi-endpoint gateway for AI backends (Claude Code, Codex, custom bots)"
 readme = "README.md"
 license = "MIT"
 authors = [

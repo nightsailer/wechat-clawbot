@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-微信 iLink Bot SDK，内置多端点网关，支持 AI 后端接入（Claude Code、Codex、自定义机器人）。
+微信 iLink Bot SDK，内置多用户多端点网关，支持 AI 后端接入（Claude Code、Codex、自定义机器人）。
 
 移植自 [@tencent-weixin/openclaw-weixin](https://www.npmjs.com/package/@tencent-weixin/openclaw-weixin)（TypeScript 版），已同步上游 v2.1.1。
 
@@ -11,7 +11,7 @@
 两种运行模式：
 
 - **单通道模式（Channel Mode）** — 单用户、单端点 MCP 桥接，用于 Claude Code
-- **网关模式（Gateway Mode）** (v0.4.0+) — 多 Bot、多端点路由网关
+- **网关模式（Gateway Mode）** (v0.4.0+) — 多用户、多端点路由网关
 
 > **初次使用？** 请阅读[使用指南](docs/guide.zh.md)，包含部署、团队管理、SDK 开发、Webhook 集成、运维等完整场景教程。
 
@@ -36,7 +36,7 @@
 - **SILK 转码** — 语音消息转 WAV（可选依赖）
 - **消息处理** — 入站消息转换、斜杠命令、调试模式、错误通知
 - **Claude Code Channel** — MCP 服务器，将微信消息桥接到 Claude Code 会话
-- **网关模式** — 多 Bot、多端点路由网关，支持投递队列、会话管理、Admin API、SDK 客户端库
+- **网关模式** — 多用户、多端点路由网关，支持投递队列、会话管理、Admin API、SDK 客户端库
 - **安全日志** — 自动脱敏 token、authorization 等敏感字段
 - **异步优先** — 基于 httpx + anyio，使用共享连接池
 

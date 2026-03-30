@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-Project: **wechat-clawbot** — WeChat iLink Bot SDK with multi-endpoint gateway for AI backends.
+Project: **wechat-clawbot** — WeChat iLink Bot SDK with multi-user, multi-endpoint gateway for AI backends.
 
 > **WeChat Bot Constraint:** Each WeChat account can create only one Bot, and that Bot is exclusively bound to the creator's WeChat account (1:1). Multiple people cannot share a single Bot. The gateway manages multiple Bots (each from a different WeChat user) routing to multiple endpoints.
 

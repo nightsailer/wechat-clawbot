@@ -2,7 +2,7 @@
 
 [中文版](README.zh.md) | English
 
-WeChat iLink Bot SDK with multi-endpoint gateway for AI backends (Claude Code, Codex, custom bots).
+WeChat iLink Bot SDK with multi-user, multi-endpoint gateway for AI backends (Claude Code, Codex, custom bots).
 
 Ported from [@tencent-weixin/openclaw-weixin](https://www.npmjs.com/package/@tencent-weixin/openclaw-weixin) (TypeScript), synced with upstream v2.1.1.
 
@@ -11,7 +11,7 @@ Ported from [@tencent-weixin/openclaw-weixin](https://www.npmjs.com/package/@ten
 Two operating modes:
 
 - **Channel Mode** — single-user, single-endpoint MCP bridge for Claude Code
-- **Gateway Mode** (v0.4.0+) — multi-Bot, multi-endpoint routing gateway
+- **Gateway Mode** (v0.4.0+) — multi-user, multi-endpoint routing gateway
 
 > **New to this project?** Read the [Usage Guide](docs/guide.md) for step-by-step scenarios covering deployment, daily operations, SDK development, and more.
 
@@ -36,7 +36,7 @@ Gateway Mode:             │  WeChat Bots ┤──> SDK WS  ──> Custom Bot
 - **SILK transcoding** — voice message to WAV conversion (optional)
 - **Message processing** — inbound conversion, slash commands, debug mode, error notices
 - **Claude Code Channel** — MCP server bridging WeChat messages into Claude Code sessions
-- **Gateway mode** — multi-Bot, multi-endpoint routing gateway with delivery queue, session management, admin API, and SDK client library
+- **Gateway mode** — multi-user, multi-endpoint routing gateway with delivery queue, session management, admin API, and SDK client library
 - **Secure logging** — automatic redaction of sensitive fields (tokens, authorization) in log output
 - **Async-first** — built on httpx + anyio with shared connection pools
 
