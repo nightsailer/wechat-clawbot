@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 from wechat_clawbot.gateway.session import SessionStore, _normalize_user_id
-from wechat_clawbot.gateway.types import EndpointBinding, EndpointSession, UserRole, UserState
+from wechat_clawbot.gateway.types import EndpointSession, UserRole
 
 
 class TestNormalizeUserId:
