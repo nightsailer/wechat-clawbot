@@ -51,6 +51,39 @@ class _MessageQueue:
         return len(self._queue)
 
 
+class _ClientMode:
+    """Tracks whether the connected client supports channel push.
+
+    After MCP initialization handshake, we inspect the client's experimental
+    capabilities.  If ``claude/channel`` is present the client is Claude Code
+    and receives channel notifications.  Otherwise (e.g. Codex) we fall back
+    to resource notifications + ``wechat_get_messages`` polling.
+    """
+
+    def __init__(self) -> None:
+        self.supports_channel: bool = False  # set after handshake
+        self.detected: bool = False
+
+    def detect(self, server: Server) -> None:
+        """Inspect MCP server session for client capabilities."""
+        try:
+            session = server.request_context.session
+            params = session.client_params  # type: ignore[union-attr]
+            if (
+                params
+                and params.capabilities
+                and params.capabilities.experimental
+                and "claude/channel" in params.capabilities.experimental
+            ):
+                self.supports_channel = True
+        except Exception:
+            pass  # Before handshake or no context — default to False
+        self.detected = True
+        _log(
+            f"Client mode detected: {'channel (Claude Code)' if self.supports_channel else 'polling (Codex/other)'}"
+        )
+
+
 # -- Tool definition for Codex compatibility ---------------------------------
 
 _GET_MESSAGES_TOOL = mcp_types.Tool(
@@ -123,6 +156,8 @@ async def _sse_listener(
     message_queue: _MessageQueue,
     stop_event: anyio.Event,
     api_key: str = "",
+    client_mode: _ClientMode | None = None,
+    server_ref: Server | None = None,
 ) -> None:
     """Connect to gateway SSE endpoint and forward messages."""
     sse_url = f"{gateway_url.rstrip('/')}/mcp/{endpoint_id}/sse"
@@ -183,28 +218,38 @@ async def _sse_listener(
                     if not sender_id or not content:
                         continue
 
-                    # Push to message queue (for Codex)
-                    message_queue.push(sender_id, content)
+                    # Lazy detection: on first message, try to detect client type.
+                    # By this point the MCP handshake should be complete.
+                    if client_mode and not client_mode.detected:
+                        client_mode.detect(server_ref)
 
-                    # Forward as channel notification (for Claude Code)
-                    try:
-                        notification = build_channel_notification(sender_id, content)
-                        await write_stream.send(SessionMessage(JSONRPCMessage(notification)))
-                    except Exception as e:
-                        _log_error(f"Failed to forward notification: {e}")
+                    use_channel = (
+                        client_mode.supports_channel
+                        if client_mode and client_mode.detected
+                        else True
+                    )
 
-                    # Also send resources/updated for Codex
-                    try:
-                        resource_notification = mcp_types.JSONRPCNotification(
-                            jsonrpc="2.0",
-                            method="notifications/resources/updated",
-                            params={"uri": "wechat://messages/pending"},
-                        )
-                        await write_stream.send(
-                            SessionMessage(JSONRPCMessage(resource_notification))
-                        )
-                    except Exception:
-                        pass  # Non-critical
+                    if use_channel:
+                        # Claude Code: push via channel notification
+                        try:
+                            notification = build_channel_notification(sender_id, content)
+                            await write_stream.send(SessionMessage(JSONRPCMessage(notification)))
+                        except Exception as e:
+                            _log_error(f"Failed to forward channel notification: {e}")
+                    else:
+                        # Codex/other: queue message + send resource update notification
+                        message_queue.push(sender_id, content)
+                        try:
+                            resource_notification = mcp_types.JSONRPCNotification(
+                                jsonrpc="2.0",
+                                method="notifications/resources/updated",
+                                params={"uri": "wechat://messages/pending"},
+                            )
+                            await write_stream.send(
+                                SessionMessage(JSONRPCMessage(resource_notification))
+                            )
+                        except Exception:
+                            pass  # Non-critical
 
         except Exception as e:
             if stop_event.is_set():
@@ -273,6 +318,7 @@ async def run_bridge_server(gateway_url: str, endpoint_id: str, api_key: str = "
             return [mcp_types.TextContent(type="text", text=f"bridge error: {e}")]
 
     stop_event = anyio.Event()
+    client_mode = _ClientMode()
 
     async with stdio_server() as (read_stream, write_stream):
         _log("MCP bridge ready")
@@ -286,7 +332,13 @@ async def run_bridge_server(gateway_url: str, endpoint_id: str, api_key: str = "
                 message_queue,
                 stop_event,
                 api_key,
+                client_mode,
+                server,
             )
+
+            # Give server.run a small wrapper so we detect capabilities
+            # after the MCP handshake completes. The SSE listener will
+            # attempt detection lazily on first incoming message.
 
             try:
                 await server.run(
