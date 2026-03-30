@@ -54,9 +54,19 @@ pip install wechat-clawbot
 Optional extras:
 
 ```bash
-uv add "wechat-clawbot[silk]"    # SILK voice transcoding
-uv add "wechat-clawbot[socks]"   # SOCKS proxy support (e.g. behind a SOCKS5 proxy)
+uv add "wechat-clawbot[gateway]"  # Gateway mode (+pyyaml, uvicorn)
+uv add "wechat-clawbot[sdk]"      # SDK client (+websockets)
+uv add "wechat-clawbot[silk]"     # SILK voice transcoding
+uv add "wechat-clawbot[socks]"    # SOCKS proxy support
 ```
+
+| Extra | Dependencies | Use case |
+|-------|-------------|----------|
+| Core (no extra) | anyio, httpx, pydantic, cryptography, qrcode, mcp | Channel mode (Claude Code) |
+| `[gateway]` | +pyyaml, uvicorn | Gateway mode (clawbot-gateway CLI) |
+| `[sdk]` | +websockets | SDK client (ClawBotClient) |
+| `[silk]` | +graiax-silkcoder | SILK voice transcoding |
+| `[socks]` | +httpx[socks] | SOCKS proxy support |
 
 ## Channel Mode (Single-User)
 

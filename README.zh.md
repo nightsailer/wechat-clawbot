@@ -54,9 +54,19 @@ pip install wechat-clawbot
 可选扩展：
 
 ```bash
-uv add "wechat-clawbot[silk]"    # SILK 语音转码
-uv add "wechat-clawbot[socks]"   # SOCKS 代理支持（如使用 SOCKS5 代理）
+uv add "wechat-clawbot[gateway]"  # 网关模式（+pyyaml, uvicorn）
+uv add "wechat-clawbot[sdk]"      # SDK 客户端（+websockets）
+uv add "wechat-clawbot[silk]"     # SILK 语音转码
+uv add "wechat-clawbot[socks]"    # SOCKS 代理支持
 ```
+
+| 扩展包 | 包含依赖 | 用途 |
+|--------|----------|------|
+| 核心（无扩展） | anyio, httpx, pydantic, cryptography, qrcode, mcp | 单通道模式（Claude Code Channel） |
+| `[gateway]` | +pyyaml, uvicorn | 网关模式（clawbot-gateway 命令） |
+| `[sdk]` | +websockets | SDK 客户端（ClawBotClient） |
+| `[silk]` | +graiax-silkcoder | SILK 语音转码 |
+| `[socks]` | +httpx[socks] | SOCKS 代理支持 |
 
 ## 单通道模式（Channel Mode）
 
