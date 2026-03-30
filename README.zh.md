@@ -9,6 +9,8 @@
 - **单通道模式（Channel Mode）** — 单用户、单端点 MCP 桥接，用于 Claude Code
 - **网关模式（Gateway Mode）** (v0.4.0+) — M:N 多用户、多端点路由网关
 
+> **初次使用？** 请阅读[使用指南](docs/guide.zh.md)，包含部署、团队管理、SDK 开发、Webhook 集成、运维等完整场景教程。
+
 ```
                           ┌──────────────────────────────────────────────┐
 单通道模式:                │  微信 ──> ilink API ──> [桥接] ──> Claude Code  │
@@ -378,8 +380,9 @@ uv run ruff format src/ tests/
 
 ## 文档
 
-- [iLink Bot 协议](docs/ilink-protocol.md) — 微信 ClawBot iLink API 协议参考
+- **[使用指南](docs/guide.zh.md)** — 场景化教程：部署、团队管理、SDK 开发、Webhook 集成、运维和故障排查
 - [Python SDK API](docs/api.md) — wechat-clawbot 公共 API 参考
+- [iLink Bot 协议](docs/ilink-protocol.md) — 微信 ClawBot iLink API 协议参考
 
 ## 协议
 

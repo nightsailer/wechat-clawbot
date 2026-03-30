@@ -9,6 +9,8 @@ Two operating modes:
 - **Channel Mode** — single-user, single-endpoint MCP bridge for Claude Code
 - **Gateway Mode** (v0.4.0+) — M:N multi-user, multi-endpoint routing gateway
 
+> **New to this project?** Read the [Usage Guide](docs/guide.md) for step-by-step scenarios covering deployment, daily operations, SDK development, and more.
+
 ```
                           ┌─────────────────────────────────────────────┐
 Channel Mode:             │  WeChat ──> ilink API ──> [bridge] ──> Claude Code  │
@@ -378,8 +380,9 @@ uv run ruff format src/ tests/
 
 ## Documentation
 
-- [iLink Bot Protocol](docs/ilink-protocol.md) — WeChat ClawBot iLink API protocol reference
+- **[Usage Guide](docs/guide.md)** — Scenario-based guide: deployment, team setup, SDK development, webhook integration, maintenance, and troubleshooting
 - [Python SDK API](docs/api.md) — Public API reference for wechat-clawbot
+- [iLink Bot Protocol](docs/ilink-protocol.md) — WeChat ClawBot iLink API protocol reference
 
 ## License
 
