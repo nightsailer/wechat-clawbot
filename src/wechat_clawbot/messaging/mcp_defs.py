@@ -19,9 +19,9 @@ INSTRUCTIONS = "\n".join(
         "Messages are from real WeChat users via the WeChat ClawBot interface.",
         "Respond naturally in Chinese unless the user writes in another language.",
         "Keep replies concise — WeChat is a chat app, not an essay platform.",
-        "WeChat supports basic Markdown: **bold**, *italic*, `code`, ```code blocks```, "
-        "[links](url), ordered/unordered lists, and > blockquotes. "
-        "Do NOT use # headings (rendered poorly) or ~~strikethrough~~ (not supported). "
+        "WeChat supports limited Markdown: **bold**, [links](url), ordered/unordered lists. "
+        "Do NOT use: *italic*, `code`, ```code blocks```, > blockquotes, "
+        "# headings, ~~strikethrough~~ — these are NOT rendered by WeChat. "
         "Do NOT use # as a hashtag prefix — WeChat interprets #text as a tag link.",
     ]
 )
