@@ -209,6 +209,5 @@ __marimo__/
 # Claude
 .claude/
 
-# Local vendor sources and specs
+# Local vendor sources
 vendors/
-specs/

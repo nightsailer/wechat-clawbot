@@ -2,6 +2,34 @@
 
 All notable changes to this project will be documented in this file.
 
+## [0.4.0] - 2026-03-30
+
+Gateway v2 — multi-Bot, multi-endpoint message routing gateway for WeChat ClawBot.
+
+### Added
+
+- **Gateway mode with multi-Bot, multi-endpoint routing** — multiple WeChat Bot accounts (each 1:1 bound to its creator's WeChat account) map to multiple upstream AI endpoints, with per-Bot-owner session isolation and endpoint switching
+- **Three sub-channel types** — MCP SSE (`/mcp/{id}/sse`), SDK WebSocket (`/sdk/{id}/ws`), and HTTP Webhook (`/http/{id}/callback`) for connecting different backend types
+- **Delivery queue with SQLite persistence** — WAL-mode SQLite-backed durable queue with retry logic and expiry; no messages lost on restart
+- **Message archive (sidecar)** — optional SQLite-backed archive recording every inbound/outbound message with retention policy support
+- **Session management** — per-user state persistence with active endpoint tracking, endpoint bindings, and per-endpoint session context
+- **Authorization system** — three modes: `allowlist` (admin-only), `open` (everyone), `invite-code` (code-gated access); admin role with elevated privileges
+- **Router engine** — resolves messages via active-endpoint, `@mention` prefix routing, or `/command` gateway commands; configurable prefix and command characters
+- **Endpoint manager** — runtime registry of upstream endpoints with online/offline status tracking and health checks
+- **Admin HTTP API** — separate Starlette server on `admin_port` with Bearer token auth; endpoints for status, accounts, endpoints, users, and invite management
+- **Invite code system** — generate short-lived, usage-limited codes for endpoint binding; file-backed storage with TTL and max-uses
+- **Gateway CLI (`clawbot-gateway`)** — full command-line interface with 25+ subcommands: `init`, `start`, `stop`, `status`, `account {add,list,remove,status}`, `user {list,info,allow,block,bind,unbind}`, `endpoint {list,add,remove}`, `invite {list,create}`, `logs`
+- **SDK client library (`ClawBotClient`)** — async WebSocket client with auto-reconnect for building custom bots; `Message` dataclass, `messages()` async iterator, `reply()` method
+- **WeChat gateway commands** — `/list`, `/use <name>`, `/to <name> <msg>`, `/status`, `/bind`, `/unbind`, `/help` for in-chat endpoint management
+- **Shared utilities** — `AsyncSQLiteStore` base class, `poll_core` shared polling logic, `mcp_defs` MCP notification constants, `atomic_write_text` for safe file writes
+- **Gateway Pydantic config** — full `gateway.yaml` schema with validation: `GatewayConfig`, `GatewayServerConfig`, `AccountConfigModel`, `EndpointConfigModel`, `RoutingConfig`, `AuthorizationConfig`, `ArchiveConfig`
+- 308 new tests covering all gateway modules (102 → 410 total)
+
+### Changed
+
+- Project description updated to reflect gateway capability
+- `pyproject.toml` now declares `clawbot-gateway` CLI entry point
+
 ## [0.3.0] - 2026-03-29
 
 Synced with upstream `@tencent-weixin/openclaw-weixin` v2.1.1.
